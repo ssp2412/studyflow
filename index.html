@@ -972,6 +972,50 @@
             }
         }
 
+        @keyframes urgentPulse {
+            0%, 100% {
+                transform: scale(1);
+                opacity: 1;
+            }
+            50% {
+                transform: scale(1.02);
+                opacity: 0.9;
+            }
+        }
+
+        /* Copyright Footer */
+        .copyright-footer {
+            text-align: center;
+            padding: 20px 15px;
+            margin-top: 20px;
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            color: white;
+        }
+
+        .copyright-logo {
+            font-size: 24px;
+            font-weight: 800;
+            letter-spacing: 2px;
+            margin-bottom: 8px;
+            background: linear-gradient(135deg, #ffffff 0%, #e0e7ff 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            text-shadow: 0 2px 10px rgba(255, 255, 255, 0.3);
+        }
+
+        .copyright-text {
+            font-size: 12px;
+            opacity: 0.85;
+            margin-top: 5px;
+        }
+
+        .copyright-year {
+            font-weight: 600;
+        }
+
         /* Responsive */
         @media (max-width: 480px) {
             .container {
@@ -1063,6 +1107,12 @@
                 <div class="timer-display">
                     <div class="subject" id="currentSubject">Select a subject</div>
                     <div class="time" id="timerDisplay">00:00:00</div>
+                    
+                    <!-- Progress Bar -->
+                    <div style="margin-top: 15px; background: rgba(0,0,0,0.1); border-radius: 10px; height: 12px; overflow: hidden; position: relative;">
+                        <div id="timerProgress" style="height: 100%; background: linear-gradient(90deg, var(--success) 0%, var(--secondary) 100%); width: 100%; transition: width 0.3s ease; border-radius: 10px;"></div>
+                    </div>
+                    <div id="timerPercentage" style="text-align: center; margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--primary);">100% remaining</div>
                 </div>
 
                 <div class="timer-controls">
@@ -1283,6 +1333,12 @@
         <div class="timer-display-large">
             <div class="timer-subject" id="fullscreenSubject">Mathematics</div>
             <div class="timer-time-large" id="fullscreenTimer">00:00:00</div>
+            
+            <!-- Fullscreen Progress Bar -->
+            <div style="margin-top: 30px; background: rgba(255,255,255,0.2); border-radius: 15px; height: 20px; overflow: hidden; width: 80%; max-width: 400px; margin-left: auto; margin-right: auto;">
+                <div id="fullscreenProgress" style="height: 100%; background: white; width: 100%; transition: width 0.3s ease; border-radius: 15px; box-shadow: 0 0 20px rgba(255,255,255,0.5);"></div>
+            </div>
+            <div id="fullscreenPercentage" style="text-align: center; margin-top: 15px; font-size: 18px; font-weight: 700; color: white; opacity: 0.95;">100% remaining</div>
         </div>
 
         <div class="fullscreen-controls">
@@ -1338,6 +1394,19 @@
         </div>
     </div>
 
+    <!-- Copyright Footer -->
+    <div class="container">
+        <div class="copyright-footer">
+            <div class="copyright-logo">SSPATIL</div>
+            <div class="copyright-text">
+                © <span class="copyright-year">2025</span> SSPATIL. All rights reserved.
+            </div>
+            <div class="copyright-text" style="margin-top: 8px; font-size: 11px;">
+                StudyFlow - Smart Study Time Tracker
+            </div>
+        </div>
+    </div>
+
     <script>
         const app = {
             timer: null,
@@ -1355,6 +1424,7 @@
             currentYear: new Date().getFullYear(),
             customSound: null,
             customSoundName: null,
+            alarmInterval: null,
 
             init() {
                 this.loadSubjects();
@@ -1429,6 +1499,14 @@
                 document.getElementById('currentSubject').textContent = subject;
                 document.getElementById('fullscreenSubject').textContent = subject;
 
+                // Initialize countdown display
+                const hours = Math.floor(this.currentDuration / 3600);
+                const minutes = Math.floor((this.currentDuration % 3600) / 60);
+                const seconds = this.currentDuration % 60;
+                const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                document.getElementById('timerDisplay').textContent = timeString;
+                document.getElementById('fullscreenTimer').textContent = timeString;
+
                 this.timer = setInterval(() => this.updateTimer(), 100);
 
                 this.updateTimerButtons();
@@ -1456,6 +1534,12 @@
                 if (!confirm('⏹️ Stop timer and save session?')) return;
 
                 clearInterval(this.timer);
+                
+                // Stop any running alarm
+                if (this.alarmInterval) {
+                    clearInterval(this.alarmInterval);
+                    this.alarmInterval = null;
+                }
 
                 const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
                 const newSession = {
@@ -1489,9 +1573,35 @@
                 this.currentSubject = null;
                 this.currentDuration = 0;
 
+                // Stop any running alarm
+                if (this.alarmInterval) {
+                    clearInterval(this.alarmInterval);
+                    this.alarmInterval = null;
+                }
+
                 document.getElementById('timerDisplay').textContent = '00:00:00';
                 document.getElementById('fullscreenTimer').textContent = '00:00:00';
                 document.getElementById('currentSubject').textContent = 'Select a subject';
+
+                // Reset progress bars
+                const progressBar = document.getElementById('timerProgress');
+                const fullscreenProgressBar = document.getElementById('fullscreenProgress');
+                const percentageText = document.getElementById('timerPercentage');
+                const fullscreenPercentageText = document.getElementById('fullscreenPercentage');
+                
+                if (progressBar) {
+                    progressBar.style.width = '100%';
+                    progressBar.style.background = 'linear-gradient(90deg, var(--success) 0%, var(--secondary) 100%)';
+                }
+                if (fullscreenProgressBar) {
+                    fullscreenProgressBar.style.width = '100%';
+                }
+                if (percentageText) {
+                    percentageText.textContent = '100% remaining';
+                }
+                if (fullscreenPercentageText) {
+                    fullscreenPercentageText.textContent = '100% remaining';
+                }
 
                 this.updateTimerButtons();
                 this.updateStatusBadge();
@@ -1500,19 +1610,93 @@
             updateTimer() {
                 this.elapsedTime = Date.now() - this.startTime;
 
-                const totalSeconds = Math.floor(this.elapsedTime / 1000);
-                const hours = Math.floor(totalSeconds / 3600);
-                const minutes = Math.floor((totalSeconds % 3600) / 60);
-                const seconds = totalSeconds % 60;
+                const elapsedSeconds = Math.floor(this.elapsedTime / 1000);
+                
+                // COUNT DOWN - Calculate remaining time instead of elapsed
+                const remainingSeconds = Math.max(0, this.currentDuration - elapsedSeconds);
+                
+                const hours = Math.floor(remainingSeconds / 3600);
+                const minutes = Math.floor((remainingSeconds % 3600) / 60);
+                const seconds = remainingSeconds % 60;
 
                 const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
                 
                 document.getElementById('timerDisplay').textContent = timeString;
                 document.getElementById('fullscreenTimer').textContent = timeString;
 
-                if (totalSeconds >= this.currentDuration) {
+                // Update progress bar with color changes
+                const percentRemaining = this.currentDuration > 0 ? (remainingSeconds / this.currentDuration * 100) : 100;
+                const progressBar = document.getElementById('timerProgress');
+                const fullscreenProgressBar = document.getElementById('fullscreenProgress');
+                const percentageText = document.getElementById('timerPercentage');
+                const fullscreenPercentageText = document.getElementById('fullscreenPercentage');
+                
+                // Dynamic color based on time remaining
+                let progressColor;
+                if (percentRemaining > 50) {
+                    progressColor = 'linear-gradient(90deg, #10b981, #06b6d4)'; // Green to cyan
+                } else if (percentRemaining > 20) {
+                    progressColor = 'linear-gradient(90deg, #f59e0b, #f97316)'; // Yellow to orange
+                } else {
+                    progressColor = 'linear-gradient(90deg, #ef4444, #dc2626)'; // Red
+                }
+                
+                if (progressBar) {
+                    progressBar.style.width = percentRemaining + '%';
+                    progressBar.style.background = progressColor;
+                    // Add urgent animation when less than 10% remaining
+                    if (percentRemaining < 10 && percentRemaining > 0) {
+                        progressBar.style.animation = 'urgentPulse 0.5s infinite';
+                    } else {
+                        progressBar.style.animation = 'none';
+                    }
+                }
+                if (fullscreenProgressBar) {
+                    fullscreenProgressBar.style.width = percentRemaining + '%';
+                    if (percentRemaining < 10 && percentRemaining > 0) {
+                        fullscreenProgressBar.style.animation = 'urgentPulse 0.5s infinite';
+                    } else {
+                        fullscreenProgressBar.style.animation = 'none';
+                    }
+                }
+                if (percentageText) {
+                    percentageText.textContent = Math.round(percentRemaining) + '% remaining';
+                    // Change color when urgent
+                    if (percentRemaining < 20) {
+                        percentageText.style.color = 'var(--danger)';
+                        percentageText.style.fontWeight = '700';
+                    } else {
+                        percentageText.style.color = 'var(--primary)';
+                        percentageText.style.fontWeight = '600';
+                    }
+                }
+                if (fullscreenPercentageText) {
+                    fullscreenPercentageText.textContent = Math.round(percentRemaining) + '% remaining';
+                }
+
+                // Timer complete when remaining time hits 0
+                if (remainingSeconds <= 0) {
+                    clearInterval(this.timer);
+                    this.isRunning = false;
                     this.playAlarmSound();
-                    this.stopTimer();
+                    
+                    // Auto-save session when timer completes
+                    const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                    const newSession = {
+                        id: Date.now(),
+                        subject: this.currentSubject,
+                        duration: this.currentDuration, // Full duration completed
+                        date: new Date().toISOString(),
+                        dateString: new Date().toDateString()
+                    };
+
+                    sessions.push(newSession);
+                    localStorage.setItem('sessions', JSON.stringify(sessions));
+
+                    this.resetTimer();
+                    this.updateTodayStats();
+                    this.updateCalendar();
+                    this.updateSessionsDisplay();
                 }
             },
 
@@ -1749,9 +1933,145 @@
                                 <span class="session-time">${minutes}m ${seconds}s</span>
                             </div>
                             <div class="session-date">📅 ${dateStr}</div>
+                            <div class="session-actions" style="display: flex; gap: 8px; margin-top: 10px;">
+                                <button onclick="app.editSession(${session.id})" style="flex: 1; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">✏️ Edit</button>
+                                <button onclick="app.deleteSession(${session.id})" style="flex: 1; padding: 10px; background: var(--danger); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">🗑️ Delete</button>
+                            </div>
                         </div>
                     `;
                 }).join('');
+            },
+
+            editSession(sessionId) {
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const session = sessions.find(s => s.id === sessionId);
+                
+                if (!session) {
+                    alert('⚠️ Session not found!');
+                    return;
+                }
+
+                const subjects = JSON.parse(localStorage.getItem('subjects')) || [];
+                const subjectOptions = subjects.map(s => 
+                    `<option value="${s}" ${s === session.subject ? 'selected' : ''}>${s}</option>`
+                ).join('');
+
+                const minutes = Math.floor(session.duration / 60);
+                const seconds = session.duration % 60;
+
+                const modalHTML = `
+                    <div id="editSessionModal" style="
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(0, 0, 0, 0.8);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 99999;
+                        padding: 20px;
+                    ">
+                        <div style="
+                            background: white;
+                            border-radius: 20px;
+                            padding: 30px;
+                            max-width: 90%;
+                            width: 400px;
+                            max-height: 90vh;
+                            overflow-y: auto;
+                        ">
+                            <h2 style="font-size: 24px; margin-bottom: 20px; color: var(--primary);">✏️ Edit Session</h2>
+                            
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-primary);">Subject</label>
+                                <select id="editSessionSubject" style="width: 100%; padding: 12px; border: 2px solid var(--border); border-radius: 10px; font-size: 15px;">
+                                    ${subjectOptions}
+                                </select>
+                            </div>
+
+                            <div style="margin-bottom: 15px;">
+                                <label style="display: block; margin-bottom: 8px; font-weight: 600; color: var(--text-primary);">Duration</label>
+                                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                                    <div>
+                                        <input type="number" id="editSessionMinutes" value="${minutes}" min="0" placeholder="Minutes" style="width: 100%; padding: 12px; border: 2px solid var(--border); border-radius: 10px; font-size: 15px;">
+                                        <small style="color: var(--text-secondary);">Minutes</small>
+                                    </div>
+                                    <div>
+                                        <input type="number" id="editSessionSeconds" value="${seconds}" min="0" max="59" placeholder="Seconds" style="width: 100%; padding: 12px; border: 2px solid var(--border); border-radius: 10px; font-size: 15px;">
+                                        <small style="color: var(--text-secondary);">Seconds</small>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 20px;">
+                                <button onclick="app.saveSessionEdit(${sessionId})" style="padding: 14px; background: var(--primary); color: white; border: none; border-radius: 10px; font-weight: 600; cursor: pointer;">💾 Save</button>
+                                <button onclick="app.closeEditSessionModal()" style="padding: 14px; background: var(--gray); color: white; border: none; border-radius: 10px; font-weight: 600; cursor: pointer;">✕ Cancel</button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+            },
+
+            saveSessionEdit(sessionId) {
+                const subject = document.getElementById('editSessionSubject').value;
+                const minutes = parseInt(document.getElementById('editSessionMinutes').value) || 0;
+                const seconds = parseInt(document.getElementById('editSessionSeconds').value) || 0;
+
+                if (!subject) {
+                    alert('⚠️ Please select a subject!');
+                    return;
+                }
+
+                if (minutes === 0 && seconds === 0) {
+                    alert('⚠️ Duration must be greater than 0!');
+                    return;
+                }
+
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const sessionIndex = sessions.findIndex(s => s.id === sessionId);
+
+                if (sessionIndex === -1) {
+                    alert('⚠️ Session not found!');
+                    return;
+                }
+
+                sessions[sessionIndex].subject = subject;
+                sessions[sessionIndex].duration = (minutes * 60) + seconds;
+
+                localStorage.setItem('sessions', JSON.stringify(sessions));
+
+                this.closeEditSessionModal();
+                this.updateSessionsDisplay();
+                this.updateTodayStats();
+                this.updateCalendar();
+
+                alert('✅ Session updated successfully!');
+            },
+
+            closeEditSessionModal() {
+                const modal = document.getElementById('editSessionModal');
+                if (modal) {
+                    modal.remove();
+                }
+            },
+
+            deleteSession(sessionId) {
+                if (!confirm('🗑️ Delete this session? This cannot be undone!')) return;
+
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const filteredSessions = sessions.filter(s => s.id !== sessionId);
+
+                localStorage.setItem('sessions', JSON.stringify(filteredSessions));
+
+                this.updateSessionsDisplay();
+                this.updateTodayStats();
+                this.updateCalendar();
+
+                alert('✅ Session deleted!');
             },
 
             selectTaskStatus(status) {
@@ -2082,10 +2402,74 @@
             },
 
             testSound() {
-                this.playAlarmSound();
+                this.playAlarmSoundOnce();
             },
 
             playAlarmSound() {
+                // Stop any existing alarm
+                if (this.alarmInterval) {
+                    clearInterval(this.alarmInterval);
+                    this.alarmInterval = null;
+                }
+
+                // Show completion modal with continuous alarm
+                const modalHTML = `
+                    <div id="alarmModal" style="
+                        position: fixed;
+                        top: 0;
+                        left: 0;
+                        right: 0;
+                        bottom: 0;
+                        background: rgba(0, 0, 0, 0.8);
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        z-index: 99999;
+                        animation: fadeIn 0.3s ease;
+                    ">
+                        <div style="
+                            background: white;
+                            border-radius: 20px;
+                            padding: 40px 30px;
+                            text-align: center;
+                            max-width: 90%;
+                            width: 400px;
+                            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+                        ">
+                            <div style="font-size: 64px; margin-bottom: 20px;">⏰</div>
+                            <h2 style="font-size: 28px; margin-bottom: 15px; color: #6366f1;">Time's Up!</h2>
+                            <p style="font-size: 16px; color: #475569; margin-bottom: 30px;">
+                                Great work! Your timer has completed.
+                            </p>
+                            <button onclick="app.stopAlarm()" style="
+                                background: linear-gradient(135deg, #6366f1 0%, #06b6d4 100%);
+                                color: white;
+                                border: none;
+                                padding: 15px 40px;
+                                border-radius: 12px;
+                                font-size: 16px;
+                                font-weight: 600;
+                                cursor: pointer;
+                                width: 100%;
+                            ">OK</button>
+                        </div>
+                    </div>
+                `;
+                
+                document.body.insertAdjacentHTML('beforeend', modalHTML);
+
+                // Play alarm sound immediately and continuously
+                this.playAlarmSoundOnce();
+                
+                // Set up continuous playback - plays every 2 seconds
+                this.alarmInterval = setInterval(() => {
+                    this.playAlarmSoundOnce();
+                }, 2000);
+                
+                console.log('Alarm started - playing every 2 seconds');
+            },
+
+            playAlarmSoundOnce() {
                 const soundType = localStorage.getItem('notificationSound') || 'bell';
                 const volume = (localStorage.getItem('volume') || 70) / 100;
 
@@ -2096,46 +2480,94 @@
                         audio.volume = volume;
                         audio.play().catch(error => {
                             console.error('Error playing custom sound:', error);
-                            alert('⚠️ Error playing custom sound. The file may be corrupted.');
                         });
                     } catch (error) {
                         console.error('Error creating audio:', error);
-                        alert('⚠️ Error playing custom sound.');
                     }
                 } else {
-                    // Play built-in sound
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-
-                    oscillator.connect(gainNode);
-                    gainNode.connect(audioContext.destination);
-
-                    const frequencies = {
-                        'bell': [800, 1000, 1200],
-                        'chime': [523.25, 659.25, 783.99],
-                        'beep': [440],
-                        'ding': [1000, 1500]
-                    };
-
-                    const freq = frequencies[soundType] || frequencies['bell'];
-                    
-                    gainNode.gain.setValueAtTime(volume * 0.3, audioContext.currentTime);
-                    
-                    freq.forEach((f, i) => {
-                        const osc = audioContext.createOscillator();
-                        const gain = audioContext.createGain();
+                    // Play VERY JOYFUL celebration sound - "Happy Birthday" style
+                    try {
+                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         
-                        osc.connect(gain);
-                        gain.connect(audioContext.destination);
+                        // Resume if suspended
+                        if (audioContext.state === 'suspended') {
+                            audioContext.resume();
+                        }
                         
-                        osc.frequency.setValueAtTime(f, audioContext.currentTime);
-                        gain.gain.setValueAtTime(volume * 0.2, audioContext.currentTime);
-                        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                        // JOYFUL MELODY: C-E-G-C (Major chord arpeggio) + High bells
+                        const notes = [
+                            // Main melody - Happy upward scale
+                            { freq: 523.25, time: 0, duration: 0.25, vol: 0.5 },    // C5
+                            { freq: 659.25, time: 0.25, duration: 0.25, vol: 0.5 }, // E5
+                            { freq: 783.99, time: 0.5, duration: 0.25, vol: 0.5 },  // G5
+                            { freq: 1046.50, time: 0.75, duration: 0.6, vol: 0.6 }, // C6 - HOLD
+                            
+                            // Harmony notes (play with final note)
+                            { freq: 523.25, time: 0.75, duration: 0.6, vol: 0.4 },  // C5
+                            { freq: 659.25, time: 0.75, duration: 0.6, vol: 0.4 },  // E5
+                            { freq: 783.99, time: 0.75, duration: 0.6, vol: 0.4 },  // G5
+                            
+                            // Celebration "ting" bells at the end
+                            { freq: 2093, time: 1.0, duration: 0.3, vol: 0.3 },     // C7
+                            { freq: 2349.32, time: 1.1, duration: 0.3, vol: 0.3 },  // D7
+                            { freq: 2637, time: 1.2, duration: 0.4, vol: 0.3 },     // E7
+                        ];
                         
-                        osc.start(audioContext.currentTime + i * 0.1);
-                        osc.stop(audioContext.currentTime + 0.5 + i * 0.1);
-                    });
+                        notes.forEach(note => {
+                            const osc = audioContext.createOscillator();
+                            const gain = audioContext.createGain();
+                            
+                            osc.connect(gain);
+                            gain.connect(audioContext.destination);
+                            
+                            // Sine wave for pleasant tone
+                            osc.type = 'sine';
+                            osc.frequency.value = note.freq;
+                            
+                            const startTime = audioContext.currentTime + note.time;
+                            const endTime = startTime + note.duration;
+                            
+                            // Volume envelope
+                            gain.gain.setValueAtTime(0, startTime);
+                            gain.gain.linearRampToValueAtTime(volume * note.vol, startTime + 0.05);
+                            gain.gain.linearRampToValueAtTime(volume * note.vol * 0.8, endTime - 0.05);
+                            gain.gain.linearRampToValueAtTime(0.001, endTime);
+                            
+                            osc.start(startTime);
+                            osc.stop(endTime);
+                        });
+                        
+                    } catch (error) {
+                        console.error('Error playing alarm:', error);
+                        // Fallback: simple beep
+                        try {
+                            const ctx = new (window.AudioContext || window.webkitAudioContext)();
+                            const osc = ctx.createOscillator();
+                            const gain = ctx.createGain();
+                            osc.connect(gain);
+                            gain.connect(ctx.destination);
+                            osc.frequency.value = 800;
+                            gain.gain.value = volume * 0.5;
+                            osc.start();
+                            osc.stop(ctx.currentTime + 0.5);
+                        } catch (e) {
+                            console.error('Fallback sound failed:', e);
+                        }
+                    }
+                }
+            },
+
+            stopAlarm() {
+                // Stop the alarm interval
+                if (this.alarmInterval) {
+                    clearInterval(this.alarmInterval);
+                    this.alarmInterval = null;
+                }
+                
+                // Remove the modal
+                const modal = document.getElementById('alarmModal');
+                if (modal) {
+                    modal.remove();
                 }
             },
 
