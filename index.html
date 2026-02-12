@@ -2221,7 +2221,7 @@ async function cloudLoad(){
  if(snap.exists()){
    const obj = JSON.parse(snap.data().data);
    Object.keys(obj).forEach(k=>localStorage.setItem(k,obj[k]));
-   location.reload();
+   //location.reload();
  }
 }
 
