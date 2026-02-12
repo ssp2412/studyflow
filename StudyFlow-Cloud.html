@@ -1,0 +1,2235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>StudyFlow - Smart Study Time Tracker</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        :root {
+            --primary: #6366f1;
+            --primary-dark: #4f46e5;
+            --primary-light: #818cf8;
+            --secondary: #06b6d4;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --gray: #64748b;
+            --gray-light: #94a3b8;
+            --gray-lighter: #cbd5e1;
+            --bg: #f8fafc;
+            --bg-card: #ffffff;
+            --text-primary: #0f172a;
+            --text-secondary: #475569;
+            --text-tertiary: #94a3b8;
+            --border: #e2e8f0;
+            --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1);
+            --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            min-height: 100vh;
+            color: var(--text-primary);
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 15px;
+            padding-bottom: 20px;
+        }
+
+        /* Header */
+        .header {
+            text-align: center;
+            color: white;
+            margin-bottom: 15px;
+            padding: 15px 10px;
+        }
+
+        .header-icon {
+            font-size: 40px;
+            margin-bottom: 8px;
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 5px;
+            text-shadow: 0 2px 8px rgba(0,0,0,0.2);
+        }
+
+        .header p {
+            opacity: 0.95;
+            font-size: 14px;
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: grid;
+            grid-template-columns: repeat(5, 1fr);
+            gap: 6px;
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(10px);
+            border-radius: 12px;
+            padding: 6px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .tab-btn {
+            padding: 10px 6px;
+            border: none;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.85);
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .tab-btn:active {
+            transform: scale(0.95);
+        }
+
+        .tab-btn.active {
+            background: white;
+            color: var(--primary);
+            box-shadow: var(--shadow);
+        }
+
+        .tab-content {
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Card */
+        .card {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 18px;
+            margin-bottom: 15px;
+            box-shadow: var(--shadow-lg);
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 15px;
+            color: var(--primary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .section-icon {
+            font-size: 20px;
+        }
+
+        /* Status Badge */
+        .status-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: auto;
+        }
+
+        .status-badge.idle {
+            background: var(--gray-lighter);
+            color: var(--gray);
+        }
+
+        .status-badge.active {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+            animation: pulse 2s infinite;
+        }
+
+        .status-badge.paused {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .status-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: currentColor;
+        }
+
+        /* Fullscreen Timer */
+        .timer-fullscreen {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--secondary) 100%);
+            z-index: 9999;
+            padding: 20px;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .timer-fullscreen.active {
+            display: flex;
+        }
+
+        .fullscreen-header {
+            position: absolute;
+            top: 15px;
+            right: 15px;
+        }
+
+        .btn-fullscreen-close {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(10px);
+            border: none;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+        }
+
+        .btn-fullscreen-close:active {
+            transform: scale(0.95);
+        }
+
+        .timer-display-large {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .timer-subject {
+            color: white;
+            font-size: 18px;
+            opacity: 0.95;
+            margin-bottom: 10px;
+            font-weight: 600;
+        }
+
+        .timer-time-large {
+            color: white;
+            font-size: 64px;
+            font-weight: 700;
+            text-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 2px;
+        }
+
+        .fullscreen-controls {
+            display: flex;
+            gap: 15px;
+        }
+
+        .btn-fullscreen-control {
+            background: rgba(255, 255, 255, 0.25);
+            backdrop-filter: blur(10px);
+            border: none;
+            color: white;
+            padding: 15px 30px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            min-width: 120px;
+        }
+
+        .btn-fullscreen-control:active {
+            transform: scale(0.95);
+        }
+
+        /* Quick Timer Buttons */
+        .quick-timers {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .quick-timer-btn {
+            background: linear-gradient(135deg, var(--primary-light), var(--primary));
+            border: none;
+            color: white;
+            padding: 20px 15px;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            box-shadow: var(--shadow);
+            transition: all 0.3s ease;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .quick-timer-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow-lg);
+        }
+
+        .quick-timer-btn:active {
+            transform: scale(0.95);
+        }
+
+        .quick-timer-icon {
+            font-size: 28px;
+        }
+
+        .quick-timer-label {
+            font-size: 16px;
+            font-weight: 700;
+        }
+
+        .quick-timer-subtitle {
+            font-size: 11px;
+            opacity: 0.9;
+        }
+
+        /* Timer Display */
+        .timer-display {
+            text-align: center;
+            padding: 20px;
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(6, 182, 212, 0.1));
+            border-radius: 12px;
+            margin-bottom: 15px;
+        }
+
+        .timer-display .subject {
+            font-size: 14px;
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+
+        .timer-display .time {
+            font-size: 48px;
+            font-weight: 700;
+            color: var(--primary);
+            font-variant-numeric: tabular-nums;
+            letter-spacing: 2px;
+        }
+
+        /* Timer Controls */
+        .timer-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .btn-timer {
+            flex: 1;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn-timer:active {
+            transform: scale(0.95);
+        }
+
+        .btn-timer.start {
+            background: var(--success);
+            color: white;
+        }
+
+        .btn-timer.pause {
+            background: var(--warning);
+            color: white;
+        }
+
+        .btn-timer.stop {
+            background: var(--danger);
+            color: white;
+        }
+
+        .btn-timer.fullscreen {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-timer:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+
+        /* Input Controls */
+        .input-group {
+            margin-bottom: 15px;
+        }
+
+        .input-label {
+            display: block;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            margin-bottom: 8px;
+        }
+
+        .input-field {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+
+        .input-field:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
+        }
+
+        select.input-field {
+            cursor: pointer;
+            background: white;
+        }
+
+        /* Slider */
+        .slider-container {
+            margin-bottom: 15px;
+        }
+
+        .slider-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+        }
+
+        .slider-label {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-secondary);
+        }
+
+        .slider-value {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .slider {
+            width: 100%;
+            height: 6px;
+            border-radius: 5px;
+            background: var(--gray-lighter);
+            outline: none;
+            -webkit-appearance: none;
+        }
+
+        .slider::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+        }
+
+        .slider::-moz-range-thumb {
+            width: 18px;
+            height: 18px;
+            border-radius: 50%;
+            background: var(--primary);
+            cursor: pointer;
+            border: none;
+        }
+
+        /* Sound Options */
+        .sound-options {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 10px;
+            margin-bottom: 15px;
+        }
+
+        .sound-option {
+            padding: 12px;
+            border: 2px solid var(--border);
+            border-radius: 10px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        .sound-option:hover {
+            border-color: var(--primary-light);
+        }
+
+        .sound-option.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--primary);
+        }
+
+        /* Custom Sound Upload */
+        .custom-sound-upload {
+            margin-bottom: 15px;
+        }
+
+        .file-upload-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 12px 20px;
+            background: var(--primary);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .file-upload-btn:hover {
+            background: var(--primary-dark);
+        }
+
+        .file-upload-btn:active {
+            transform: scale(0.95);
+        }
+
+        .custom-sound-info {
+            margin-top: 10px;
+            padding: 10px;
+            background: rgba(99, 102, 241, 0.1);
+            border-radius: 8px;
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .custom-sound-name {
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .btn-remove-custom {
+            margin-top: 8px;
+            padding: 6px 12px;
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        /* Buttons */
+        .btn {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 10px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .btn:active {
+            transform: scale(0.98);
+        }
+
+        .btn-primary {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-danger {
+            background: var(--danger);
+            color: white;
+        }
+
+        /* Subject List */
+        .subject-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .subject-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: var(--bg);
+            border-radius: 10px;
+            border: 2px solid var(--border);
+        }
+
+        .subject-name {
+            font-weight: 600;
+            color: var(--text-primary);
+        }
+
+        .btn-delete {
+            background: var(--danger);
+            color: white;
+            border: none;
+            padding: 6px 12px;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        /* Stats Grid */
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 15px;
+        }
+
+        .stat-card {
+            background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(6, 182, 212, 0.1));
+            padding: 15px;
+            border-radius: 12px;
+            text-align: center;
+        }
+
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--primary);
+            margin-bottom: 5px;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 600;
+        }
+
+        /* Calendar */
+        .calendar-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+
+        .calendar-month {
+            font-size: 16px;
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .calendar-nav {
+            display: flex;
+            gap: 10px;
+        }
+
+        .calendar-nav button {
+            background: var(--primary);
+            color: white;
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .calendar-grid {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 6px;
+        }
+
+        .calendar-day-header {
+            text-align: center;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-secondary);
+            padding: 8px 0;
+        }
+
+        .calendar-day {
+            aspect-ratio: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 8px;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+        }
+
+        .calendar-day.other-month {
+            color: var(--gray-lighter);
+        }
+
+        .calendar-day.today {
+            background: var(--primary);
+            color: white;
+        }
+
+        .calendar-day.has-session {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .calendar-day.has-task {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .calendar-day.has-both {
+            background: linear-gradient(135deg, rgba(16, 185, 129, 0.15), rgba(245, 158, 11, 0.15));
+            color: var(--primary);
+        }
+
+        .calendar-day:hover {
+            background: var(--primary-light);
+            color: white;
+        }
+
+        /* Sessions List */
+        .sessions-list {
+            display: grid;
+            gap: 10px;
+        }
+
+        .session-item {
+            background: var(--bg);
+            padding: 12px 15px;
+            border-radius: 10px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .session-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 5px;
+        }
+
+        .session-subject {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .session-time {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .session-date {
+            font-size: 12px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }
+
+        .empty-state-icon {
+            font-size: 48px;
+            margin-bottom: 10px;
+        }
+
+        .empty-state-text {
+            font-size: 14px;
+        }
+
+        /* Tasks */
+        .task-status-selector {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+
+        .status-option {
+            padding: 10px;
+            border: 2px solid var(--border);
+            border-radius: 8px;
+            text-align: center;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+
+        .status-option:hover {
+            border-color: var(--primary-light);
+        }
+
+        .status-option.selected {
+            border-color: var(--primary);
+            background: rgba(99, 102, 241, 0.1);
+            color: var(--primary);
+        }
+
+        .task-item {
+            background: var(--bg);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 10px;
+            border-left: 4px solid var(--gray);
+        }
+
+        .task-item.status-completed {
+            border-left-color: var(--success);
+        }
+
+        .task-item.status-partial {
+            border-left-color: var(--warning);
+        }
+
+        .task-item.status-not-completed {
+            border-left-color: var(--danger);
+        }
+
+        .task-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+
+        .task-subject {
+            font-weight: 700;
+            color: var(--text-primary);
+        }
+
+        .task-status-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+
+        .task-status-badge.completed {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--success);
+        }
+
+        .task-status-badge.partial {
+            background: rgba(245, 158, 11, 0.1);
+            color: var(--warning);
+        }
+
+        .task-status-badge.not-completed {
+            background: rgba(239, 68, 68, 0.1);
+            color: var(--danger);
+        }
+
+        .task-description {
+            color: var(--text-secondary);
+            font-size: 13px;
+            margin-bottom: 8px;
+            line-height: 1.5;
+        }
+
+        .task-date {
+            font-size: 12px;
+            color: var(--text-tertiary);
+            margin-bottom: 10px;
+        }
+
+        .task-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .btn-task-action {
+            flex: 1;
+            padding: 8px;
+            border: none;
+            border-radius: 6px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+        }
+
+        .btn-edit-task {
+            background: var(--primary);
+            color: white;
+        }
+
+        .btn-delete-task {
+            background: var(--danger);
+            color: white;
+        }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.5);
+            z-index: 10000;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .modal.active {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-content {
+            background: white;
+            border-radius: 16px;
+            padding: 24px;
+            max-width: 500px;
+            width: 100%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .modal-title {
+            font-size: 20px;
+            font-weight: 700;
+            color: var(--primary);
+        }
+
+        .modal-close {
+            background: var(--gray-lighter);
+            border: none;
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .modal-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        @keyframes pulse {
+            0%, 100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.7;
+            }
+        }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .container {
+                padding: 10px;
+            }
+
+            .header h1 {
+                font-size: 24px;
+            }
+
+            .timer-time-large {
+                font-size: 52px;
+            }
+
+            .stats-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <div class="header">
+            <div class="header-icon">📚</div>
+            <h1>StudyFlow</h1>
+            <p>Track your study time effectively</p>
+        </div>
+
+        <!-- Tab Navigation -->
+        <div class="tab-nav">
+            <button class="tab-btn active" onclick="app.switchTab('timer')">⏱️ Timer</button>
+            <button class="tab-btn" onclick="app.switchTab('analytics')">📊 Stats</button>
+            <button class="tab-btn" onclick="app.switchTab('tasks')">✅ Tasks</button>
+            <button class="tab-btn" onclick="app.switchTab('subjects')">📖 Subjects</button>
+            <button class="tab-btn" onclick="app.switchTab('settings')">⚙️ Settings</button>
+        </div>
+
+        <!-- Timer Tab -->
+        <div id="timerTab" class="tab-content active">
+            <!-- Quick Timer Buttons -->
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">⚡</span>
+                    Quick Start Timers
+                </div>
+                <div class="quick-timers">
+                    <button class="quick-timer-btn" onclick="app.startQuickTimer(60)">
+                        <span class="quick-timer-icon">⏱️</span>
+                        <span class="quick-timer-label">1 Hour</span>
+                        <span class="quick-timer-subtitle">60 min</span>
+                    </button>
+                    <button class="quick-timer-btn" onclick="app.startQuickTimer(90)">
+                        <span class="quick-timer-icon">⏰</span>
+                        <span class="quick-timer-label">1.5 Hours</span>
+                        <span class="quick-timer-subtitle">90 min</span>
+                    </button>
+                    <button class="quick-timer-btn" onclick="app.startQuickTimer(120)">
+                        <span class="quick-timer-icon">⏲️</span>
+                        <span class="quick-timer-label">2 Hours</span>
+                        <span class="quick-timer-subtitle">120 min</span>
+                    </button>
+                </div>
+            </div>
+
+            <!-- Custom Timer Setup -->
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">⏱️</span>
+                    Custom Timer Setup
+                    <span class="status-badge" id="timerStatus">
+                        <span class="status-dot"></span>
+                        Idle
+                    </span>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Subject</label>
+                    <select id="subjectSelect" class="input-field">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Duration (minutes)</label>
+                    <input type="number" id="durationInput" class="input-field" min="1" max="300" value="25">
+                </div>
+
+                <div class="timer-display">
+                    <div class="subject" id="currentSubject">Select a subject</div>
+                    <div class="time" id="timerDisplay">00:00:00</div>
+                </div>
+
+                <div class="timer-controls">
+                    <button class="btn-timer start" id="startBtn" onclick="app.startTimer()">▶️ Start</button>
+                    <button class="btn-timer pause" id="pauseBtn" onclick="app.pauseTimer()" disabled>⏸️ Pause</button>
+                    <button class="btn-timer stop" id="stopBtn" onclick="app.stopTimer()" disabled>⏹️ Stop</button>
+                    <button class="btn-timer fullscreen" id="fullscreenBtn" onclick="app.openFullscreen()" disabled>🔲 Full</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Analytics Tab -->
+        <div id="analyticsTab" class="tab-content">
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">📊</span>
+                    Today's Progress
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="todayTime">0h 0m</div>
+                        <div class="stat-label">Total Time</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="todaySessions">0</div>
+                        <div class="stat-label">Sessions</div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">📅</span>
+                    Study Calendar
+                </div>
+
+                <div class="calendar-header">
+                    <div class="calendar-month" id="calendarMonth">January 2024</div>
+                    <div class="calendar-nav">
+                        <button onclick="app.changeMonth(-1)">◀</button>
+                        <button onclick="app.changeMonth(1)">▶</button>
+                    </div>
+                </div>
+
+                <div class="calendar-grid" id="calendarGrid">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">📝</span>
+                    Recent Sessions
+                </div>
+                <div class="sessions-list" id="sessionsList">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Tasks Tab -->
+        <div id="tasksTab" class="tab-content">
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">➕</span>
+                    Add New Task
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Date</label>
+                    <input type="date" id="taskDate" class="input-field">
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Subject</label>
+                    <select id="taskSubject" class="input-field">
+                        <!-- Populated dynamically -->
+                    </select>
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Task Description</label>
+                    <input type="text" id="taskDescription" class="input-field" placeholder="Enter task details...">
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Status</label>
+                    <div class="task-status-selector" id="statusOptions">
+                        <div class="status-option selected" data-status="completed" onclick="app.selectTaskStatus('completed')">
+                            ✅ Completed
+                        </div>
+                        <div class="status-option" data-status="partial" onclick="app.selectTaskStatus('partial')">
+                            🔄 In Progress
+                        </div>
+                        <div class="status-option" data-status="not-completed" onclick="app.selectTaskStatus('not-completed')">
+                            ❌ Not Started
+                        </div>
+                    </div>
+                </div>
+
+                <button class="btn btn-primary" onclick="app.addTask()">➕ Add Task</button>
+            </div>
+
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">📋</span>
+                    Tasks
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">View Tasks For</label>
+                    <input type="date" id="taskDateSelector" class="input-field" onchange="app.onTaskDateChange()">
+                </div>
+
+                <div id="tasksList">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Subjects Tab -->
+        <div id="subjectsTab" class="tab-content">
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">➕</span>
+                    Add Subject
+                </div>
+
+                <div class="input-group">
+                    <label class="input-label">Subject Name</label>
+                    <input type="text" id="newSubject" class="input-field" placeholder="e.g., Mathematics">
+                </div>
+
+                <button class="btn btn-primary" onclick="app.addSubject()">➕ Add Subject</button>
+            </div>
+
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">📚</span>
+                    Your Subjects
+                </div>
+                <div class="subject-list" id="subjectList">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Tab -->
+        <div id="settingsTab" class="tab-content">
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">🔔</span>
+                    Timer Alarm Settings
+                </div>
+
+                <div class="input-label">Select Alarm Sound</div>
+                <div class="sound-options" id="soundOptions">
+                    <div class="sound-option selected" data-sound="bell" onclick="app.selectSound('bell')">
+                        🔔 Bell
+                    </div>
+                    <div class="sound-option" data-sound="chime" onclick="app.selectSound('chime')">
+                        🎵 Chime
+                    </div>
+                    <div class="sound-option" data-sound="beep" onclick="app.selectSound('beep')">
+                        📢 Beep
+                    </div>
+                    <div class="sound-option" data-sound="ding" onclick="app.selectSound('ding')">
+                        🔊 Ding
+                    </div>
+                </div>
+
+                <div class="custom-sound-upload">
+                    <input type="file" id="customSoundInput" accept="audio/*" style="display: none;" onchange="app.handleCustomSound(event)">
+                    <button class="file-upload-btn" onclick="document.getElementById('customSoundInput').click()">
+                        📁 Upload Custom Sound
+                    </button>
+                    <div id="customSoundInfo" style="display: none;" class="custom-sound-info">
+                        <div class="custom-sound-name" id="customSoundName"></div>
+                        <button class="btn-remove-custom" onclick="app.removeCustomSound()">🗑️ Remove Custom Sound</button>
+                    </div>
+                </div>
+
+                <div class="slider-container">
+                    <div class="slider-header">
+                        <span class="slider-label">Alarm Volume</span>
+                        <span class="slider-value"><span id="volumeValue">70</span>%</span>
+                    </div>
+                    <input type="range" class="slider" id="volumeSlider" min="0" max="100" value="70" 
+                           oninput="app.updateVolume(this.value)">
+                </div>
+
+                <button class="btn btn-primary" onclick="app.testSound()">🔊 Test Sound</button>
+            </div>
+
+            <div class="card">
+                <div class="section-title">
+                    <span class="section-icon">💾</span>
+                    Data Management
+                </div>
+
+                <button class="btn btn-primary" onclick="app.exportData()" style="margin-bottom: 10px;">
+                    📥 Export Data
+                </button>
+                <button class="btn btn-danger" onclick="app.clearAllData()">
+                    🗑️ Clear All Data
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Fullscreen Timer -->
+    <div class="timer-fullscreen" id="timerFullscreen">
+        <div class="fullscreen-header">
+            <button class="btn-fullscreen-close" onclick="app.closeFullscreen()">✕ Close</button>
+        </div>
+
+        <div class="timer-display-large">
+            <div class="timer-subject" id="fullscreenSubject">Mathematics</div>
+            <div class="timer-time-large" id="fullscreenTimer">00:00:00</div>
+        </div>
+
+        <div class="fullscreen-controls">
+            <button class="btn-fullscreen-control" id="fullscreenPauseBtn" onclick="app.pauseTimer()">⏸️ Pause</button>
+            <button class="btn-fullscreen-control" onclick="app.stopTimer()">⏹️ Stop</button>
+        </div>
+    </div>
+
+    <!-- Edit Task Modal -->
+    <div class="modal" id="editTaskModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <div class="modal-title">Edit Task</div>
+                <button class="modal-close" onclick="app.closeTaskEditModal()">✕</button>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">Date</label>
+                <input type="date" id="editTaskDate" class="input-field">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">Subject</label>
+                <select id="editTaskSubject" class="input-field">
+                    <!-- Populated dynamically -->
+                </select>
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">Task Description</label>
+                <input type="text" id="editTaskDescription" class="input-field">
+            </div>
+
+            <div class="input-group">
+                <label class="input-label">Status</label>
+                <div class="task-status-selector" id="editStatusOptions">
+                    <div class="status-option" data-status="completed" onclick="app.selectEditTaskStatus('completed')">
+                        ✅ Completed
+                    </div>
+                    <div class="status-option" data-status="partial" onclick="app.selectEditTaskStatus('partial')">
+                        🔄 In Progress
+                    </div>
+                    <div class="status-option" data-status="not-completed" onclick="app.selectEditTaskStatus('not-completed')">
+                        ❌ Not Started
+                    </div>
+                </div>
+            </div>
+
+            <div class="modal-actions">
+                <button class="btn btn-primary" onclick="app.saveTaskEdit()">💾 Save</button>
+                <button class="btn btn-danger" onclick="app.closeTaskEditModal()">✕ Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const app = {
+            timer: null,
+            startTime: null,
+            elapsedTime: 0,
+            isRunning: false,
+            isPaused: false,
+            currentSubject: null,
+            currentDuration: 0,
+            selectedTaskStatus: 'completed',
+            editTaskStatus: 'completed',
+            editingTaskId: null,
+            selectedTaskDate: null,
+            currentMonth: new Date().getMonth(),
+            currentYear: new Date().getFullYear(),
+            customSound: null,
+            customSoundName: null,
+
+            init() {
+                this.loadSubjects();
+                this.updateTodayStats();
+                this.updateCalendar();
+                this.updateSessionsDisplay();
+                this.loadSettings();
+                this.loadTasks();
+                this.initializeTaskDate();
+            },
+
+            initializeTaskDate() {
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('taskDate').value = today;
+                document.getElementById('taskDateSelector').value = today;
+            },
+
+            switchTab(tab) {
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                event.target.classList.add('active');
+                document.getElementById(tab + 'Tab').classList.add('active');
+
+                if (tab === 'analytics') {
+                    this.updateTodayStats();
+                    this.updateCalendar();
+                    this.updateSessionsDisplay();
+                } else if (tab === 'tasks') {
+                    this.loadTasks();
+                }
+            },
+
+            startQuickTimer(minutes) {
+                const subject = document.getElementById('subjectSelect').value;
+                if (!subject) {
+                    alert('⚠️ Please add a subject first!');
+                    this.switchTab('subjects');
+                    return;
+                }
+
+                // Set the duration
+                document.getElementById('durationInput').value = minutes;
+                
+                // Start the timer immediately
+                this.startTimer();
+                
+                // Optional: Show a notification
+                alert(`⏱️ Quick timer started for ${minutes} minutes!`);
+            },
+
+            startTimer() {
+                const subject = document.getElementById('subjectSelect').value;
+                const duration = parseInt(document.getElementById('durationInput').value);
+
+                if (!subject) {
+                    alert('⚠️ Please select a subject!');
+                    return;
+                }
+
+                if (!duration || duration < 1) {
+                    alert('⚠️ Please enter a valid duration!');
+                    return;
+                }
+
+                this.currentSubject = subject;
+                this.currentDuration = duration * 60;
+                this.startTime = Date.now() - this.elapsedTime;
+                this.isRunning = true;
+                this.isPaused = false;
+
+                document.getElementById('currentSubject').textContent = subject;
+                document.getElementById('fullscreenSubject').textContent = subject;
+
+                this.timer = setInterval(() => this.updateTimer(), 100);
+
+                this.updateTimerButtons();
+                this.updateStatusBadge();
+            },
+
+            pauseTimer() {
+                if (this.isRunning) {
+                    clearInterval(this.timer);
+                    this.isRunning = false;
+                    this.isPaused = true;
+                    this.updateTimerButtons();
+                    this.updateStatusBadge();
+                } else if (this.isPaused) {
+                    this.startTime = Date.now() - this.elapsedTime;
+                    this.isRunning = true;
+                    this.isPaused = false;
+                    this.timer = setInterval(() => this.updateTimer(), 100);
+                    this.updateTimerButtons();
+                    this.updateStatusBadge();
+                }
+            },
+
+            stopTimer() {
+                if (!confirm('⏹️ Stop timer and save session?')) return;
+
+                clearInterval(this.timer);
+
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const newSession = {
+                    id: Date.now(),
+                    subject: this.currentSubject,
+                    duration: Math.floor(this.elapsedTime / 1000),
+                    date: new Date().toISOString(),
+                    dateString: new Date().toDateString()
+                };
+
+                sessions.push(newSession);
+                localStorage.setItem('sessions', JSON.stringify(sessions));
+
+                this.resetTimer();
+                this.updateTodayStats();
+                this.updateCalendar();
+                this.updateSessionsDisplay();
+
+                const minutes = Math.floor(newSession.duration / 60);
+                const seconds = newSession.duration % 60;
+                alert(`✅ Session saved!\n${this.currentSubject}\nDuration: ${minutes}m ${seconds}s`);
+            },
+
+            resetTimer() {
+                clearInterval(this.timer);
+                this.timer = null;
+                this.startTime = null;
+                this.elapsedTime = 0;
+                this.isRunning = false;
+                this.isPaused = false;
+                this.currentSubject = null;
+                this.currentDuration = 0;
+
+                document.getElementById('timerDisplay').textContent = '00:00:00';
+                document.getElementById('fullscreenTimer').textContent = '00:00:00';
+                document.getElementById('currentSubject').textContent = 'Select a subject';
+
+                this.updateTimerButtons();
+                this.updateStatusBadge();
+            },
+
+            updateTimer() {
+                this.elapsedTime = Date.now() - this.startTime;
+
+                const totalSeconds = Math.floor(this.elapsedTime / 1000);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const seconds = totalSeconds % 60;
+
+                const timeString = `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+                
+                document.getElementById('timerDisplay').textContent = timeString;
+                document.getElementById('fullscreenTimer').textContent = timeString;
+
+                if (totalSeconds >= this.currentDuration) {
+                    this.playAlarmSound();
+                    this.stopTimer();
+                }
+            },
+
+            updateTimerButtons() {
+                const startBtn = document.getElementById('startBtn');
+                const pauseBtn = document.getElementById('pauseBtn');
+                const stopBtn = document.getElementById('stopBtn');
+                const fullscreenBtn = document.getElementById('fullscreenBtn');
+                const fullscreenPauseBtn = document.getElementById('fullscreenPauseBtn');
+
+                if (this.isRunning) {
+                    startBtn.disabled = true;
+                    pauseBtn.disabled = false;
+                    pauseBtn.textContent = '⏸️ Pause';
+                    stopBtn.disabled = false;
+                    fullscreenBtn.disabled = false;
+                    fullscreenPauseBtn.textContent = '⏸️ Pause';
+                } else if (this.isPaused) {
+                    startBtn.disabled = true;
+                    pauseBtn.disabled = false;
+                    pauseBtn.textContent = '▶️ Resume';
+                    stopBtn.disabled = false;
+                    fullscreenBtn.disabled = false;
+                    fullscreenPauseBtn.textContent = '▶️ Resume';
+                } else {
+                    startBtn.disabled = false;
+                    pauseBtn.disabled = true;
+                    pauseBtn.textContent = '⏸️ Pause';
+                    stopBtn.disabled = true;
+                    fullscreenBtn.disabled = true;
+                    fullscreenPauseBtn.textContent = '⏸️ Pause';
+                }
+            },
+
+            updateStatusBadge() {
+                const badge = document.getElementById('timerStatus');
+                
+                if (this.isRunning) {
+                    badge.className = 'status-badge active';
+                    badge.innerHTML = '<span class="status-dot"></span> Active';
+                } else if (this.isPaused) {
+                    badge.className = 'status-badge paused';
+                    badge.innerHTML = '<span class="status-dot"></span> Paused';
+                } else {
+                    badge.className = 'status-badge idle';
+                    badge.innerHTML = '<span class="status-dot"></span> Idle';
+                }
+            },
+
+            openFullscreen() {
+                document.getElementById('timerFullscreen').classList.add('active');
+            },
+
+            closeFullscreen() {
+                document.getElementById('timerFullscreen').classList.remove('active');
+            },
+
+            loadSubjects() {
+                const subjects = JSON.parse(localStorage.getItem('subjects')) || [];
+                
+                const subjectSelect = document.getElementById('subjectSelect');
+                const taskSubjectSelect = document.getElementById('taskSubject');
+                const editTaskSubjectSelect = document.getElementById('editTaskSubject');
+                const subjectList = document.getElementById('subjectList');
+
+                subjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+                taskSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+                editTaskSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+
+                if (subjects.length === 0) {
+                    subjectList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📚</div><div class="empty-state-text">No subjects yet.<br>Add your first subject above!</div></div>';
+                } else {
+                    subjectList.innerHTML = subjects.map(subject => `
+                        <div class="subject-item">
+                            <span class="subject-name">${subject}</span>
+                            <button class="btn-delete" onclick="app.deleteSubject('${subject}')">🗑️ Delete</button>
+                        </div>
+                    `).join('');
+                }
+            },
+
+            addSubject() {
+                const input = document.getElementById('newSubject');
+                const subject = input.value.trim();
+
+                if (!subject) {
+                    alert('⚠️ Please enter a subject name!');
+                    return;
+                }
+
+                const subjects = JSON.parse(localStorage.getItem('subjects')) || [];
+
+                if (subjects.includes(subject)) {
+                    alert('⚠️ This subject already exists!');
+                    return;
+                }
+
+                subjects.push(subject);
+                localStorage.setItem('subjects', JSON.stringify(subjects));
+
+                input.value = '';
+                this.loadSubjects();
+                
+                alert('✅ Subject added successfully!');
+            },
+
+            deleteSubject(subject) {
+                if (!confirm(`🗑️ Delete "${subject}"?`)) return;
+
+                const subjects = JSON.parse(localStorage.getItem('subjects')) || [];
+                const filtered = subjects.filter(s => s !== subject);
+                localStorage.setItem('subjects', JSON.stringify(filtered));
+
+                this.loadSubjects();
+                
+                alert('✅ Subject deleted successfully!');
+            },
+
+            updateTodayStats() {
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const today = new Date().toDateString();
+                const todaySessions = sessions.filter(s => new Date(s.date).toDateString() === today);
+
+                const totalSeconds = todaySessions.reduce((sum, s) => sum + s.duration, 0);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+                document.getElementById('todayTime').textContent = `${hours}h ${minutes}m`;
+                document.getElementById('todaySessions').textContent = todaySessions.length;
+            },
+
+            updateCalendar() {
+                const firstDay = new Date(this.currentYear, this.currentMonth, 1);
+                const lastDay = new Date(this.currentYear, this.currentMonth + 1, 0);
+                const prevLastDay = new Date(this.currentYear, this.currentMonth, 0);
+
+                const monthNames = ['January', 'February', 'March', 'April', 'May', 'June',
+                                  'July', 'August', 'September', 'October', 'November', 'December'];
+
+                document.getElementById('calendarMonth').textContent = `${monthNames[this.currentMonth]} ${this.currentYear}`;
+
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+
+                const sessionDates = new Set(sessions.map(s => new Date(s.date).toDateString()));
+                const taskDates = new Set(tasks.map(t => t.date));
+
+                let html = '';
+                const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+                dayNames.forEach(day => {
+                    html += `<div class="calendar-day-header">${day}</div>`;
+                });
+
+                const firstDayOfWeek = firstDay.getDay();
+                for (let i = firstDayOfWeek - 1; i >= 0; i--) {
+                    const day = prevLastDay.getDate() - i;
+                    html += `<div class="calendar-day other-month">${day}</div>`;
+                }
+
+                const today = new Date().toDateString();
+                for (let day = 1; day <= lastDay.getDate(); day++) {
+                    const date = new Date(this.currentYear, this.currentMonth, day);
+                    const dateString = date.toDateString();
+                    
+                    let className = 'calendar-day';
+                    if (dateString === today) className += ' today';
+                    
+                    const hasSession = sessionDates.has(dateString);
+                    const hasTask = taskDates.has(dateString);
+                    
+                    if (hasSession && hasTask) className += ' has-both';
+                    else if (hasSession) className += ' has-session';
+                    else if (hasTask) className += ' has-task';
+
+                    html += `<div class="${className}">${day}</div>`;
+                }
+
+                const remainingDays = 42 - (firstDayOfWeek + lastDay.getDate());
+                for (let i = 1; i <= remainingDays; i++) {
+                    html += `<div class="calendar-day other-month">${i}</div>`;
+                }
+
+                document.getElementById('calendarGrid').innerHTML = html;
+            },
+
+            changeMonth(delta) {
+                this.currentMonth += delta;
+                
+                if (this.currentMonth > 11) {
+                    this.currentMonth = 0;
+                    this.currentYear++;
+                } else if (this.currentMonth < 0) {
+                    this.currentMonth = 11;
+                    this.currentYear--;
+                }
+
+                this.updateCalendar();
+            },
+
+            updateSessionsDisplay() {
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const container = document.getElementById('sessionsList');
+
+                if (sessions.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📊</div>
+                            <div class="empty-state-text">No sessions yet.<br>Start tracking your study time!</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                const sorted = [...sessions].sort((a, b) => new Date(b.date) - new Date(a.date));
+                const recent = sorted.slice(0, 10);
+
+                container.innerHTML = recent.map(session => {
+                    const date = new Date(session.date);
+                    const dateStr = date.toLocaleDateString('en-US', { 
+                        weekday: 'short', 
+                        month: 'short', 
+                        day: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    });
+
+                    const minutes = Math.floor(session.duration / 60);
+                    const seconds = session.duration % 60;
+
+                    return `
+                        <div class="session-item">
+                            <div class="session-header">
+                                <span class="session-subject">${session.subject}</span>
+                                <span class="session-time">${minutes}m ${seconds}s</span>
+                            </div>
+                            <div class="session-date">📅 ${dateStr}</div>
+                        </div>
+                    `;
+                }).join('');
+            },
+
+            selectTaskStatus(status) {
+                this.selectedTaskStatus = status;
+                document.querySelectorAll('#statusOptions .status-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                document.querySelector(`#statusOptions [data-status="${status}"]`).classList.add('selected');
+            },
+
+            selectEditTaskStatus(status) {
+                this.editTaskStatus = status;
+                document.querySelectorAll('#editStatusOptions .status-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                document.querySelector(`#editStatusOptions [data-status="${status}"]`).classList.add('selected');
+            },
+
+            addTask() {
+                const dateInput = document.getElementById('taskDate').value;
+                const subject = document.getElementById('taskSubject').value;
+                const description = document.getElementById('taskDescription').value.trim();
+                const status = this.selectedTaskStatus;
+
+                if (!dateInput) {
+                    alert('⚠️ Please select a date!');
+                    return;
+                }
+
+                if (!subject) {
+                    alert('⚠️ Please select a subject!');
+                    return;
+                }
+
+                if (!description) {
+                    alert('⚠️ Please enter a task description!');
+                    return;
+                }
+
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+                const taskDate = new Date(dateInput + 'T00:00:00');
+
+                const newTask = {
+                    id: Date.now(),
+                    subject: subject,
+                    description: description,
+                    status: status,
+                    createdAt: new Date().toISOString(),
+                    date: taskDate.toDateString()
+                };
+
+                tasks.push(newTask);
+                localStorage.setItem('tasks', JSON.stringify(tasks));
+
+                document.getElementById('taskSubject').value = '';
+                document.getElementById('taskDescription').value = '';
+                this.selectTaskStatus('completed');
+                
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('taskDate').value = today;
+
+                this.loadTasks();
+                this.updateCalendar();
+                
+                const taskDateObj = new Date(taskDate);
+                const dateStr = taskDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+                alert(`✅ Task added successfully for ${dateStr}!`);
+            },
+
+            loadTasks() {
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+                
+                let displayDate;
+                if (this.selectedTaskDate) {
+                    displayDate = this.selectedTaskDate;
+                } else {
+                    displayDate = new Date().toDateString();
+                }
+
+                const displayTasks = tasks.filter(t => t.date === displayDate);
+
+                const container = document.getElementById('tasksList');
+
+                if (displayTasks.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-state-icon">📝</div>
+                            <div class="empty-state-text">No tasks for this date.<br>Add your first task above!</div>
+                        </div>
+                    `;
+                    return;
+                }
+
+                container.innerHTML = displayTasks.map(task => {
+                    const statusLabels = {
+                        'completed': '✅ Completed',
+                        'partial': '🔄 In Progress',
+                        'not-completed': '❌ Not Started'
+                    };
+
+                    const taskDate = new Date(task.date);
+                    const dateStr = taskDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+                    return `
+                        <div class="task-item status-${task.status}">
+                            <div class="task-header">
+                                <span class="task-subject">${task.subject}</span>
+                                <span class="task-status-badge ${task.status}">${statusLabels[task.status]}</span>
+                            </div>
+                            <div class="task-description">${task.description}</div>
+                            <div class="task-date">📅 ${dateStr}</div>
+                            <div class="task-actions">
+                                <button class="btn-task-action btn-edit-task" onclick="app.openEditTask(${task.id})">
+                                    ✏️ Edit
+                                </button>
+                                <button class="btn-task-action btn-delete-task" onclick="app.deleteTask(${task.id})">
+                                    🗑️ Delete
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+            },
+
+            onTaskDateChange() {
+                const dateInput = document.getElementById('taskDateSelector').value;
+                if (dateInput) {
+                    const selectedDate = new Date(dateInput + 'T00:00:00');
+                    this.selectedTaskDate = selectedDate.toDateString();
+                    this.loadTasks();
+                }
+            },
+
+            openEditTask(taskId) {
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+                const task = tasks.find(t => t.id === taskId);
+
+                if (!task) return;
+
+                this.editingTaskId = taskId;
+                this.editTaskStatus = task.status;
+
+                const taskDate = new Date(task.date);
+                const dateStr = taskDate.toISOString().split('T')[0];
+                document.getElementById('editTaskDate').value = dateStr;
+
+                document.getElementById('editTaskSubject').value = task.subject;
+                document.getElementById('editTaskDescription').value = task.description;
+                
+                document.querySelectorAll('#editStatusOptions .status-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                document.querySelector(`#editStatusOptions [data-status="${task.status}"]`).classList.add('selected');
+
+                document.getElementById('editTaskModal').classList.add('active');
+            },
+
+            saveTaskEdit() {
+                const dateInput = document.getElementById('editTaskDate').value;
+                const subject = document.getElementById('editTaskSubject').value;
+                const description = document.getElementById('editTaskDescription').value.trim();
+                const status = this.editTaskStatus;
+
+                if (!dateInput) {
+                    alert('⚠️ Please select a date!');
+                    return;
+                }
+
+                if (!subject) {
+                    alert('⚠️ Please select a subject!');
+                    return;
+                }
+
+                if (!description) {
+                    alert('⚠️ Please enter a task description!');
+                    return;
+                }
+
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+                const taskIndex = tasks.findIndex(t => t.id === this.editingTaskId);
+
+                if (taskIndex !== -1) {
+                    const taskDate = new Date(dateInput + 'T00:00:00');
+                    
+                    tasks[taskIndex].subject = subject;
+                    tasks[taskIndex].description = description;
+                    tasks[taskIndex].status = status;
+                    tasks[taskIndex].date = taskDate.toDateString();
+                    tasks[taskIndex].updatedAt = new Date().toISOString();
+
+                    localStorage.setItem('tasks', JSON.stringify(tasks));
+                    
+                    this.closeTaskEditModal();
+                    this.loadTasks();
+                    this.updateCalendar();
+                    
+                    alert('✅ Task updated successfully!');
+                }
+            },
+
+            closeTaskEditModal() {
+                document.getElementById('editTaskModal').classList.remove('active');
+                this.editingTaskId = null;
+            },
+
+            deleteTask(taskId) {
+                if (!confirm('🗑️ Delete this task?')) return;
+
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+                const filtered = tasks.filter(t => t.id !== taskId);
+                localStorage.setItem('tasks', JSON.stringify(filtered));
+
+                this.loadTasks();
+                this.updateCalendar();
+                this.updateSessionsDisplay();
+                
+                alert('✅ Task deleted successfully!');
+            },
+
+            loadSettings() {
+                const sound = localStorage.getItem('notificationSound') || 'bell';
+                const volume = localStorage.getItem('volume') || 70;
+                const customSoundData = localStorage.getItem('customSound');
+                const customSoundName = localStorage.getItem('customSoundName');
+
+                document.querySelectorAll('.sound-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+
+                if (sound === 'custom' && customSoundData) {
+                    this.customSound = customSoundData;
+                    this.customSoundName = customSoundName;
+                    document.getElementById('customSoundInfo').style.display = 'block';
+                    document.getElementById('customSoundName').textContent = `Custom: ${customSoundName}`;
+                } else {
+                    document.querySelector(`[data-sound="${sound}"]`).classList.add('selected');
+                }
+
+                document.getElementById('volumeSlider').value = volume;
+                document.getElementById('volumeValue').textContent = volume;
+            },
+
+            selectSound(sound) {
+                localStorage.setItem('notificationSound', sound);
+                
+                document.querySelectorAll('.sound-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                document.querySelector(`[data-sound="${sound}"]`).classList.add('selected');
+            },
+
+            handleCustomSound(event) {
+                const file = event.target.files[0];
+                
+                if (!file) return;
+
+                // Validate file type
+                if (!file.type.startsWith('audio/')) {
+                    alert('⚠️ Please select a valid audio file!');
+                    return;
+                }
+
+                // Validate file size (max 5MB)
+                if (file.size > 5 * 1024 * 1024) {
+                    alert('⚠️ File size must be less than 5MB!');
+                    return;
+                }
+
+                const reader = new FileReader();
+                
+                reader.onload = (e) => {
+                    try {
+                        this.customSound = e.target.result;
+                        this.customSoundName = file.name;
+                        
+                        // Save to localStorage
+                        localStorage.setItem('customSound', this.customSound);
+                        localStorage.setItem('customSoundName', this.customSoundName);
+                        localStorage.setItem('notificationSound', 'custom');
+                        
+                        // Update UI
+                        document.querySelectorAll('.sound-option').forEach(opt => {
+                            opt.classList.remove('selected');
+                        });
+                        
+                        document.getElementById('customSoundInfo').style.display = 'block';
+                        document.getElementById('customSoundName').textContent = `Custom: ${this.customSoundName}`;
+                        
+                        alert('✅ Custom sound uploaded successfully!');
+                    } catch (error) {
+                        console.error('Error loading custom sound:', error);
+                        alert('⚠️ Error loading the audio file. Please try a different file.');
+                    }
+                };
+
+                reader.onerror = () => {
+                    alert('⚠️ Error reading the file. Please try again.');
+                };
+
+                reader.readAsDataURL(file);
+            },
+
+            removeCustomSound() {
+                if (!confirm('🗑️ Remove custom sound?')) return;
+
+                this.customSound = null;
+                this.customSoundName = null;
+                
+                localStorage.removeItem('customSound');
+                localStorage.removeItem('customSoundName');
+                localStorage.setItem('notificationSound', 'bell');
+                
+                document.getElementById('customSoundInfo').style.display = 'none';
+                document.getElementById('customSoundInput').value = '';
+                
+                // Select default sound
+                document.querySelectorAll('.sound-option').forEach(opt => {
+                    opt.classList.remove('selected');
+                });
+                document.querySelector('[data-sound="bell"]').classList.add('selected');
+                
+                alert('✅ Custom sound removed!');
+            },
+
+            updateVolume(value) {
+                document.getElementById('volumeValue').textContent = value;
+                localStorage.setItem('volume', value);
+            },
+
+            testSound() {
+                this.playAlarmSound();
+            },
+
+            playAlarmSound() {
+                const soundType = localStorage.getItem('notificationSound') || 'bell';
+                const volume = (localStorage.getItem('volume') || 70) / 100;
+
+                if (soundType === 'custom' && this.customSound) {
+                    // Play custom sound
+                    try {
+                        const audio = new Audio(this.customSound);
+                        audio.volume = volume;
+                        audio.play().catch(error => {
+                            console.error('Error playing custom sound:', error);
+                            alert('⚠️ Error playing custom sound. The file may be corrupted.');
+                        });
+                    } catch (error) {
+                        console.error('Error creating audio:', error);
+                        alert('⚠️ Error playing custom sound.');
+                    }
+                } else {
+                    // Play built-in sound
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+
+                    const frequencies = {
+                        'bell': [800, 1000, 1200],
+                        'chime': [523.25, 659.25, 783.99],
+                        'beep': [440],
+                        'ding': [1000, 1500]
+                    };
+
+                    const freq = frequencies[soundType] || frequencies['bell'];
+                    
+                    gainNode.gain.setValueAtTime(volume * 0.3, audioContext.currentTime);
+                    
+                    freq.forEach((f, i) => {
+                        const osc = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+                        
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+                        
+                        osc.frequency.setValueAtTime(f, audioContext.currentTime);
+                        gain.gain.setValueAtTime(volume * 0.2, audioContext.currentTime);
+                        gain.gain.exponentialRampToValueAtTime(0.01, audioContext.currentTime + 0.5);
+                        
+                        osc.start(audioContext.currentTime + i * 0.1);
+                        osc.stop(audioContext.currentTime + 0.5 + i * 0.1);
+                    });
+                }
+            },
+
+            exportData() {
+                const data = {
+                    subjects: JSON.parse(localStorage.getItem('subjects')) || [],
+                    sessions: JSON.parse(localStorage.getItem('sessions')) || [],
+                    tasks: JSON.parse(localStorage.getItem('tasks')) || [],
+                    settings: {
+                        sound: localStorage.getItem('notificationSound') || 'bell',
+                        volume: localStorage.getItem('volume') || 70,
+                        customSound: localStorage.getItem('customSound'),
+                        customSoundName: localStorage.getItem('customSoundName')
+                    },
+                    exportDate: new Date().toISOString()
+                };
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `studyflow-backup-${new Date().toISOString().split('T')[0]}.json`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                alert('✅ Data exported successfully!');
+            },
+
+            clearAllData() {
+                if (!confirm('⚠️ Clear ALL data? This cannot be undone!')) return;
+                if (!confirm('⚠️ Are you ABSOLUTELY sure? This will delete all sessions, tasks, and subjects!')) return;
+                
+                localStorage.clear();
+                
+                const defaultSubjects = ['Mathematics', 'Physics', 'Chemistry', 'English', 'History'];
+                localStorage.setItem('subjects', JSON.stringify(defaultSubjects));
+                
+                this.loadSubjects();
+                this.updateCalendar();
+                this.updateTodayStats();
+                this.updateSessionsDisplay();
+                this.loadSettings();
+                this.loadTasks();
+                this.initializeTaskDate();
+                
+                alert('✅ All data cleared! 5 default subjects have been added.');
+            }
+        };
+
+        window.addEventListener('load', () => {
+            if (!localStorage.getItem('subjects')) {
+                const defaultSubjects = ['Mathematics', 'Physics', 'Chemistry', 'English', 'History'];
+                localStorage.setItem('subjects', JSON.stringify(defaultSubjects));
+            }
+            
+            app.init();
+        });
+    </script>
+
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+
+const firebaseConfig = {
+apiKey: "AIzaSyBZPdHr9xDvNdPt1jwZaMy3jvxxWFFrRGo",
+authDomain: "task-timer-be9ee.firebaseapp.com",
+projectId: "task-timer-be9ee",
+storageBucket: "task-timer-be9ee.firebasestorage.app",
+messagingSenderId: "824246313062",
+appId: "1:824246313062:web:18295b9a30c755f9f6cda7"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getFirestore(app);
+const docRef = doc(db, "studyflow", "saurabh");
+
+async function cloudSave(){
+  await setDoc(docRef, { data: JSON.stringify(localStorage) });
+}
+
+async function cloudLoad(){
+ const snap = await getDoc(docRef);
+ if(snap.exists()){
+   const obj = JSON.parse(snap.data().data);
+   Object.keys(obj).forEach(k=>localStorage.setItem(k,obj[k]));
+   location.reload();
+ }
+}
+
+window.cloudSave = cloudSave;
+window.cloudLoad = cloudLoad;
+
+setInterval(cloudSave, 30000); // autosync every 30s
+</script>
+
+</body>
+</html>
