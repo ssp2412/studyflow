@@ -1165,11 +1165,14 @@
 
             <div class="card">
                 <div class="section-title">
-                    <span class="section-icon">📝</span>
-                    Recent Sessions
+                    <span class="section-icon">📅</span>
+                    <span id="selectedDateTitle">Select a date to view details</span>
                 </div>
-                <div class="sessions-list" id="sessionsList">
-                    <!-- Populated dynamically -->
+                <div id="dateDetailsContainer">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📆</div>
+                        <div class="empty-state-text">Click on a date in the calendar above<br>to view tasks and study time</div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1286,7 +1289,7 @@
                 </div>
 
                 <div class="custom-sound-upload">
-                    <input type="file" id="customSoundInput" accept="audio/*" style="display: none;" onchange="app.handleCustomSound(event)">
+                    <input type="file" id="customSoundInput" accept="audio/mpeg,audio/mp3,audio/wav,audio/ogg,audio/m4a,audio/*" style="display: none;" onchange="app.handleCustomSound(event)">
                     <button class="file-upload-btn" onclick="document.getElementById('customSoundInput').click()">
                         📁 Upload Custom Sound
                     </button>
@@ -1314,8 +1317,11 @@
                     Data Management
                 </div>
 
-                <button class="btn btn-primary" onclick="app.exportData()" style="margin-bottom: 10px;">
-                    📥 Export Data
+                <button class="btn btn-primary" onclick="app.exportToExcel()" style="margin-bottom: 10px;">
+                    📊 Export to Excel (CSV)
+                </button>
+                <button class="btn btn-primary" onclick="app.exportJSONBackup()" style="margin-bottom: 10px; background: var(--secondary);">
+                    📥 Export JSON Backup
                 </button>
                 <button class="btn btn-danger" onclick="app.clearAllData()">
                     🗑️ Clear All Data
@@ -1425,6 +1431,10 @@
             customSound: null,
             customSoundName: null,
             alarmInterval: null,
+            alarmStopTimeout: null,
+            alarmAudio: null,
+            wakeLock: null,
+            audioContextInitialized: false,
 
             init() {
                 this.loadSubjects();
@@ -1434,6 +1444,29 @@
                 this.loadSettings();
                 this.loadTasks();
                 this.initializeTaskDate();
+                this.enableAudioOnInteraction();
+            },
+            
+            enableAudioOnInteraction() {
+                // Initialize audio context on first user interaction
+                const enableAudio = () => {
+                    if (!this.audioContextInitialized) {
+                        const AudioContext = window.AudioContext || window.webkitAudioContext;
+                        if (AudioContext) {
+                            const ctx = new AudioContext();
+                            if (ctx.state === 'suspended') {
+                                ctx.resume();
+                            }
+                            this.audioContextInitialized = true;
+                            console.log('✅ Audio context initialized');
+                        }
+                    }
+                };
+                
+                // Listen for any user interaction
+                ['click', 'touchstart', 'keydown'].forEach(event => {
+                    document.addEventListener(event, enableAudio, { once: true });
+                });
             },
 
             initializeTaskDate() {
@@ -1842,7 +1875,11 @@
                 const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
 
                 const sessionDates = new Set(sessions.map(s => new Date(s.date).toDateString()));
-                const taskDates = new Set(tasks.map(t => t.date));
+                // Convert task dates from YYYY-MM-DD to a comparable format
+                const taskDates = new Set(tasks.map(t => {
+                    const [year, month, day] = t.date.split('-');
+                    return new Date(parseInt(year), parseInt(month) - 1, parseInt(day)).toDateString();
+                }));
 
                 let html = '';
                 const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
@@ -1860,6 +1897,11 @@
                 for (let day = 1; day <= lastDay.getDate(); day++) {
                     const date = new Date(this.currentYear, this.currentMonth, day);
                     const dateString = date.toDateString();
+                    // Create YYYY-MM-DD format for task filtering
+                    const year = date.getFullYear();
+                    const month = String(date.getMonth() + 1).padStart(2, '0');
+                    const dayStr = String(day).padStart(2, '0');
+                    const dateYMD = `${year}-${month}-${dayStr}`;
                     
                     let className = 'calendar-day';
                     if (dateString === today) className += ' today';
@@ -1871,7 +1913,7 @@
                     else if (hasSession) className += ' has-session';
                     else if (hasTask) className += ' has-task';
 
-                    html += `<div class="${className}">${day}</div>`;
+                    html += `<div class="${className}" onclick="app.selectCalendarDate('${dateYMD}')" style="cursor: pointer;">${day}</div>`;
                 }
 
                 const remainingDays = 42 - (firstDayOfWeek + lastDay.getDate());
@@ -1896,50 +1938,200 @@
                 this.updateCalendar();
             },
 
-            updateSessionsDisplay() {
+            selectCalendarDate(dateYMD) {
+                console.log('Calendar date clicked:', dateYMD);
+                
+                // Make sure we're on the Analytics tab
+                document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+                document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
+                
+                // Activate Analytics tab
+                const analyticsBtn = document.querySelector('.tab-btn[onclick*="analytics"]');
+                if (analyticsBtn) analyticsBtn.classList.add('active');
+                const analyticsTab = document.getElementById('analyticsTab');
+                if (analyticsTab) analyticsTab.classList.add('active');
+                
+                // Display date details in the Analytics tab
+                this.showDateDetails(dateYMD);
+                
+                // Scroll to the date details section
+                setTimeout(() => {
+                    const detailsContainer = document.getElementById('dateDetailsContainer');
+                    if (detailsContainer) {
+                        detailsContainer.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                }, 100);
+            },
+
+            showDateDetails(dateYMD) {
+                console.log('showDateDetails called with:', dateYMD);
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
                 const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
-                const container = document.getElementById('sessionsList');
+                
+                console.log('Total tasks:', tasks.length);
+                console.log('Total sessions:', sessions.length);
+                
+                // Parse the date
+                const [year, month, day] = dateYMD.split('-');
+                const targetDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                const targetDateString = targetDate.toDateString();
+                const displayDateStr = targetDate.toLocaleDateString('en-US', { 
+                    weekday: 'long', 
+                    month: 'long', 
+                    day: 'numeric', 
+                    year: 'numeric' 
+                });
+                
+                console.log('Looking for date:', dateYMD);
+                console.log('Target date string:', targetDateString);
+                
+                // Filter tasks for this date
+                const dateTasks = tasks.filter(t => t.date === dateYMD);
+                console.log('Found tasks for date:', dateTasks.length);
+                
+                // Filter sessions for this date
+                const dateSessions = sessions.filter(s => new Date(s.date).toDateString() === targetDateString);
+                console.log('Found sessions for date:', dateSessions.length);
+                
+                const totalSeconds = dateSessions.reduce((sum, s) => sum + s.duration, 0);
+                const totalHours = Math.floor(totalSeconds / 3600);
+                const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+                const totalSecondsRemainder = totalSeconds % 60;
+                
+                // Calculate subject-wise breakdown
+                const subjectBreakdown = {};
+                dateSessions.forEach(s => {
+                    // Skip null, undefined, or empty subjects
+                    if (s.subject && s.subject !== 'null' && s.subject.trim() !== '') {
+                        if (!subjectBreakdown[s.subject]) {
+                            subjectBreakdown[s.subject] = 0;
+                        }
+                        subjectBreakdown[s.subject] += s.duration;
+                    }
+                });
 
-                if (sessions.length === 0) {
-                    container.innerHTML = `
-                        <div class="empty-state">
-                            <div class="empty-state-icon">📊</div>
-                            <div class="empty-state-text">No sessions yet.<br>Start tracking your study time!</div>
-                        </div>
-                    `;
-                    return;
+                // Update title
+                const titleElement = document.getElementById('selectedDateTitle');
+                if (titleElement) {
+                    titleElement.textContent = displayDateStr;
+                    console.log('Updated title to:', displayDateStr);
                 }
-
-                const sorted = [...sessions].sort((a, b) => new Date(b.date) - new Date(a.date));
-                const recent = sorted.slice(0, 10);
-
-                container.innerHTML = recent.map(session => {
-                    const date = new Date(session.date);
-                    const dateStr = date.toLocaleDateString('en-US', { 
-                        weekday: 'short', 
-                        month: 'short', 
-                        day: 'numeric',
-                        hour: '2-digit',
-                        minute: '2-digit'
+                
+                // Build the HTML
+                let html = '';
+                
+                // Study Time Section
+                if (totalSeconds > 0) {
+                    let breakdownHTML = '';
+                    Object.entries(subjectBreakdown).forEach(([subject, seconds]) => {
+                        const hours = Math.floor(seconds / 3600);
+                        const minutes = Math.floor((seconds % 3600) / 60);
+                        const secs = seconds % 60;
+                        const timeStr = hours > 0 ? `${hours}h ${minutes}m ${secs}s` : `${minutes}m ${secs}s`;
+                        breakdownHTML += `
+                            <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                                <span style="font-weight: 600; color: var(--text-primary);">${subject}</span>
+                                <span style="color: var(--primary); font-weight: 600;">${timeStr}</span>
+                            </div>
+                        `;
                     });
 
-                    const minutes = Math.floor(session.duration / 60);
-                    const seconds = session.duration % 60;
+                    const totalTimeStr = totalHours > 0 ? `${totalHours}h ${totalMinutes}m ${totalSecondsRemainder}s` : `${totalMinutes}m ${totalSecondsRemainder}s`;
 
-                    return `
-                        <div class="session-item">
-                            <div class="session-header">
-                                <span class="session-subject">${session.subject}</span>
-                                <span class="session-time">${minutes}m ${seconds}s</span>
+                    html += `
+                        <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%); border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 2px solid var(--primary);">
+                            <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                <div style="display: flex; align-items: center; gap: 8px;">
+                                    <span style="font-size: 24px;">⏱️</span>
+                                    <span style="font-size: 16px; font-weight: 700; color: var(--text-primary);">Total Study Time</span>
+                                </div>
+                                <span style="font-size: 20px; font-weight: 700; color: var(--primary);">${totalTimeStr}</span>
                             </div>
-                            <div class="session-date">📅 ${dateStr}</div>
-                            <div class="session-actions" style="display: flex; gap: 8px; margin-top: 10px;">
-                                <button onclick="app.editSession(${session.id})" style="flex: 1; padding: 10px; background: var(--primary); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">✏️ Edit</button>
-                                <button onclick="app.deleteSession(${session.id})" style="flex: 1; padding: 10px; background: var(--danger); color: white; border: none; border-radius: 8px; font-size: 13px; font-weight: 600; cursor: pointer; transition: all 0.2s; box-shadow: 0 2px 4px rgba(0,0,0,0.1);" onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 4px 8px rgba(0,0,0,0.2)'" onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 2px 4px rgba(0,0,0,0.1)'">🗑️ Delete</button>
+                            <div id="breakdownSection_analytics" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 2px solid rgba(99, 102, 241, 0.2);">
+                                <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">Subject Breakdown:</div>
+                                ${breakdownHTML}
+                            </div>
+                            <button onclick="app.toggleAnalyticsBreakdown()" style="width: 100%; margin-top: 10px; padding: 8px; background: white; border: 2px solid var(--primary); border-radius: 8px; color: var(--primary); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                                <span id="breakdownIcon_analytics">▼</span>
+                                <span>Show Subject Breakdown</span>
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    html += `
+                        <div style="background: rgba(239, 68, 68, 0.1); border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 2px solid var(--danger);">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 24px;">📊</span>
+                                <span style="font-size: 14px; font-weight: 600; color: var(--text-secondary);">No study time recorded for this date</span>
                             </div>
                         </div>
                     `;
-                }).join('');
+                }
+                
+                // Tasks Section
+                if (dateTasks.length > 0) {
+                    html += `<div style="font-size: 18px; font-weight: 700; color: var(--primary); margin-bottom: 15px; display: flex; align-items: center; gap: 8px;">
+                        <span>✅</span>
+                        <span>Tasks (${dateTasks.length})</span>
+                    </div>`;
+                    
+                    dateTasks.forEach(task => {
+                        const statusLabels = {
+                            'completed': '✅ Completed',
+                            'partial': '🔄 In Progress',
+                            'not-completed': '❌ Not Started'
+                        };
+                        
+                        const descriptionStyle = task.status === 'completed' ? 'text-decoration: line-through; opacity: 0.7;' : '';
+                        
+                        html += `
+                            <div class="task-item status-${task.status}" style="margin-bottom: 12px;">
+                                <div class="task-header">
+                                    <span class="task-subject" style="font-weight: 700; font-size: 16px; ${descriptionStyle}">${task.description}</span>
+                                    <span class="task-status-badge ${task.status}">${statusLabels[task.status]}</span>
+                                </div>
+                                <div class="task-description" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${task.subject}</div>
+                            </div>
+                        `;
+                    });
+                } else {
+                    html += `
+                        <div style="font-size: 18px; font-weight: 700; color: var(--gray); margin-bottom: 10px; display: flex; align-items: center; gap: 8px;">
+                            <span>✅</span>
+                            <span>Tasks</span>
+                        </div>
+                        <div style="background: var(--bg); border-radius: 12px; padding: 20px; text-align: center;">
+                            <div style="font-size: 40px; margin-bottom: 10px;">📝</div>
+                            <div style="color: var(--text-secondary);">No tasks for this date</div>
+                        </div>
+                    `;
+                }
+                
+                const container = document.getElementById('dateDetailsContainer');
+                if (container) {
+                    container.innerHTML = html;
+                    console.log('Updated dateDetailsContainer with HTML');
+                } else {
+                    console.error('dateDetailsContainer element not found!');
+                }
+            },
+
+            toggleAnalyticsBreakdown() {
+                const breakdownSection = document.getElementById('breakdownSection_analytics');
+                const icon = document.getElementById('breakdownIcon_analytics');
+                
+                if (breakdownSection.style.display === 'none') {
+                    breakdownSection.style.display = 'block';
+                    icon.textContent = '▲';
+                } else {
+                    breakdownSection.style.display = 'none';
+                    icon.textContent = '▼';
+                }
+            },
+
+            updateSessionsDisplay() {
+                // This function is no longer needed as Recent Sessions section was removed
+                // Keeping it empty to avoid breaking existing code that calls it
             },
 
             editSession(sessionId) {
@@ -2112,7 +2304,8 @@
                 }
 
                 const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
-                const taskDate = new Date(dateInput + 'T00:00:00');
+                // Store the date string directly to avoid timezone issues
+                const taskDateString = dateInput; // Keep as YYYY-MM-DD format
 
                 const newTask = {
                     id: Date.now(),
@@ -2120,7 +2313,7 @@
                     description: description,
                     status: status,
                     createdAt: new Date().toISOString(),
-                    date: taskDate.toDateString()
+                    date: taskDateString // Store as YYYY-MM-DD
                 };
 
                 tasks.push(newTask);
@@ -2136,7 +2329,8 @@
                 this.loadTasks();
                 this.updateCalendar();
                 
-                const taskDateObj = new Date(taskDate);
+                const [year, month, day] = taskDateString.split('-');
+                const taskDateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
                 const dateStr = taskDateObj.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
                 alert(`✅ Task added successfully for ${dateStr}!`);
             },
@@ -2148,7 +2342,8 @@
                 if (this.selectedTaskDate) {
                     displayDate = this.selectedTaskDate;
                 } else {
-                    displayDate = new Date().toDateString();
+                    // Get today's date in YYYY-MM-DD format
+                    displayDate = new Date().toISOString().split('T')[0];
                 }
 
                 const displayTasks = tasks.filter(t => t.date === displayDate);
@@ -2165,23 +2360,83 @@
                     return;
                 }
 
-                container.innerHTML = displayTasks.map(task => {
+                // Calculate study time for this date
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const [year, month, day] = displayDate.split('-');
+                const targetDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                const targetDateString = targetDate.toDateString();
+                
+                const dateSessions = sessions.filter(s => new Date(s.date).toDateString() === targetDateString);
+                const totalSeconds = dateSessions.reduce((sum, s) => sum + s.duration, 0);
+                const totalHours = Math.floor(totalSeconds / 3600);
+                const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
+                
+                // Calculate subject-wise breakdown
+                const subjectBreakdown = {};
+                dateSessions.forEach(s => {
+                    // Skip null, undefined, or empty subjects
+                    if (s.subject && s.subject !== 'null' && s.subject.trim() !== '') {
+                        if (!subjectBreakdown[s.subject]) {
+                            subjectBreakdown[s.subject] = 0;
+                        }
+                        subjectBreakdown[s.subject] += s.duration;
+                    }
+                });
+
+                let breakdownHTML = '';
+                Object.entries(subjectBreakdown).forEach(([subject, seconds]) => {
+                    const hours = Math.floor(seconds / 3600);
+                    const minutes = Math.floor((seconds % 3600) / 60);
+                    breakdownHTML += `
+                        <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
+                            <span style="font-weight: 600; color: var(--text-primary);">${subject}</span>
+                            <span style="color: var(--primary); font-weight: 600;">${hours}h ${minutes}m</span>
+                        </div>
+                    `;
+                });
+
+                const statsHTML = totalSeconds > 0 ? `
+                    <div style="background: linear-gradient(135deg, rgba(99, 102, 241, 0.1) 0%, rgba(6, 182, 212, 0.1) 100%); border-radius: 12px; padding: 15px; margin-bottom: 15px; border: 2px solid var(--primary);">
+                        <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                            <div style="display: flex; align-items: center; gap: 8px;">
+                                <span style="font-size: 24px;">⏱️</span>
+                                <span style="font-size: 16px; font-weight: 700; color: var(--text-primary);">Total Study Time</span>
+                            </div>
+                            <span style="font-size: 20px; font-weight: 700; color: var(--primary);">${totalHours}h ${totalMinutes}m</span>
+                        </div>
+                        <div id="breakdownSection_${displayDate}" style="display: none; margin-top: 10px; padding-top: 10px; border-top: 2px solid rgba(99, 102, 241, 0.2);">
+                            <div style="font-size: 14px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px;">Subject Breakdown:</div>
+                            ${breakdownHTML}
+                        </div>
+                        <button onclick="app.toggleBreakdown('${displayDate}')" style="width: 100%; margin-top: 10px; padding: 8px; background: white; border: 2px solid var(--primary); border-radius: 8px; color: var(--primary); font-weight: 600; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 5px;">
+                            <span id="breakdownIcon_${displayDate}">▼</span>
+                            <span>Show Details</span>
+                        </button>
+                    </div>
+                ` : '';
+
+                const tasksHTML = displayTasks.map(task => {
                     const statusLabels = {
                         'completed': '✅ Completed',
                         'partial': '🔄 In Progress',
                         'not-completed': '❌ Not Started'
                     };
 
-                    const taskDate = new Date(task.date);
+                    // Parse date properly from YYYY-MM-DD format
+                    const [year, month, day] = task.date.split('-');
+                    const taskDate = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
                     const dateStr = taskDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+                    // Add strikethrough style for completed tasks
+                    const descriptionStyle = task.status === 'completed' ? 'text-decoration: line-through; opacity: 0.7;' : '';
 
                     return `
                         <div class="task-item status-${task.status}">
                             <div class="task-header">
-                                <span class="task-subject">${task.subject}</span>
+                                <span class="task-subject" style="font-weight: 700; font-size: 16px; ${descriptionStyle}">${task.description}</span>
                                 <span class="task-status-badge ${task.status}">${statusLabels[task.status]}</span>
                             </div>
-                            <div class="task-description">${task.description}</div>
+                            <div class="task-description" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${task.subject}</div>
                             <div class="task-date">📅 ${dateStr}</div>
                             <div class="task-actions">
                                 <button class="btn-task-action btn-edit-task" onclick="app.openEditTask(${task.id})">
@@ -2194,13 +2449,15 @@
                         </div>
                     `;
                 }).join('');
+
+                container.innerHTML = statsHTML + tasksHTML;
             },
 
             onTaskDateChange() {
                 const dateInput = document.getElementById('taskDateSelector').value;
                 if (dateInput) {
-                    const selectedDate = new Date(dateInput + 'T00:00:00');
-                    this.selectedTaskDate = selectedDate.toDateString();
+                    // Store as YYYY-MM-DD format
+                    this.selectedTaskDate = dateInput;
                     this.loadTasks();
                 }
             },
@@ -2214,9 +2471,8 @@
                 this.editingTaskId = taskId;
                 this.editTaskStatus = task.status;
 
-                const taskDate = new Date(task.date);
-                const dateStr = taskDate.toISOString().split('T')[0];
-                document.getElementById('editTaskDate').value = dateStr;
+                // task.date is already in YYYY-MM-DD format
+                document.getElementById('editTaskDate').value = task.date;
 
                 document.getElementById('editTaskSubject').value = task.subject;
                 document.getElementById('editTaskDescription').value = task.description;
@@ -2254,12 +2510,11 @@
                 const taskIndex = tasks.findIndex(t => t.id === this.editingTaskId);
 
                 if (taskIndex !== -1) {
-                    const taskDate = new Date(dateInput + 'T00:00:00');
-                    
+                    // Keep date in YYYY-MM-DD format
                     tasks[taskIndex].subject = subject;
                     tasks[taskIndex].description = description;
                     tasks[taskIndex].status = status;
-                    tasks[taskIndex].date = taskDate.toDateString();
+                    tasks[taskIndex].date = dateInput; // Store as YYYY-MM-DD
                     tasks[taskIndex].updatedAt = new Date().toISOString();
 
                     localStorage.setItem('tasks', JSON.stringify(tasks));
@@ -2289,6 +2544,19 @@
                 this.updateSessionsDisplay();
                 
                 alert('✅ Task deleted successfully!');
+            },
+
+            toggleBreakdown(dateId) {
+                const breakdownSection = document.getElementById(`breakdownSection_${dateId}`);
+                const icon = document.getElementById(`breakdownIcon_${dateId}`);
+                
+                if (breakdownSection.style.display === 'none') {
+                    breakdownSection.style.display = 'block';
+                    icon.textContent = '▲';
+                } else {
+                    breakdownSection.style.display = 'none';
+                    icon.textContent = '▼';
+                }
             },
 
             loadSettings() {
@@ -2326,17 +2594,34 @@
             handleCustomSound(event) {
                 const file = event.target.files[0];
                 
-                if (!file) return;
+                console.log('Custom sound upload started:', file);
+                
+                if (!file) {
+                    console.log('No file selected');
+                    return;
+                }
 
-                // Validate file type
-                if (!file.type.startsWith('audio/')) {
-                    alert('⚠️ Please select a valid audio file!');
+                // More permissive validation - check file extension and type
+                const fileName = file.name.toLowerCase();
+                const validExtensions = ['.mp3', '.wav', '.ogg', '.m4a', '.aac', '.flac', '.wma'];
+                const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
+                const hasAudioType = file.type.includes('audio') || file.type === '';
+                
+                console.log('File name:', fileName);
+                console.log('File type:', file.type);
+                console.log('Has valid extension:', hasValidExtension);
+                console.log('Has audio type:', hasAudioType);
+                
+                if (!hasValidExtension && !hasAudioType) {
+                    alert('⚠️ Please select a valid audio file (MP3, WAV, OGG, M4A)!');
+                    console.error('Invalid file - name:', fileName, 'type:', file.type);
                     return;
                 }
 
                 // Validate file size (max 5MB)
                 if (file.size > 5 * 1024 * 1024) {
                     alert('⚠️ File size must be less than 5MB!');
+                    console.error('File too large:', file.size);
                     return;
                 }
 
@@ -2344,33 +2629,50 @@
                 
                 reader.onload = (e) => {
                     try {
-                        this.customSound = e.target.result;
+                        console.log('File loaded successfully');
+                        const audioData = e.target.result;
+                        this.customSound = audioData;
                         this.customSoundName = file.name;
                         
+                        console.log('Audio data length:', audioData.length);
+                        
                         // Save to localStorage
-                        localStorage.setItem('customSound', this.customSound);
-                        localStorage.setItem('customSoundName', this.customSoundName);
-                        localStorage.setItem('notificationSound', 'custom');
+                        try {
+                            localStorage.setItem('customSound', audioData);
+                            localStorage.setItem('customSoundName', file.name);
+                            localStorage.setItem('notificationSound', 'custom');
+                            console.log('Saved to localStorage successfully');
+                        } catch (storageError) {
+                            console.error('LocalStorage error:', storageError);
+                            alert('⚠️ File is too large for storage. Try a smaller audio file (under 1MB recommended).');
+                            return;
+                        }
                         
                         // Update UI
                         document.querySelectorAll('.sound-option').forEach(opt => {
                             opt.classList.remove('selected');
                         });
                         
-                        document.getElementById('customSoundInfo').style.display = 'block';
-                        document.getElementById('customSoundName').textContent = `Custom: ${this.customSoundName}`;
+                        const customSoundInfo = document.getElementById('customSoundInfo');
+                        const customSoundName = document.getElementById('customSoundName');
                         
-                        alert('✅ Custom sound uploaded successfully!');
+                        if (customSoundInfo) customSoundInfo.style.display = 'block';
+                        if (customSoundName) customSoundName.textContent = `Custom: ${file.name}`;
+                        
+                        alert('✅ Custom sound uploaded successfully! File: ' + file.name);
+                        console.log('Custom sound upload complete');
                     } catch (error) {
                         console.error('Error loading custom sound:', error);
                         alert('⚠️ Error loading the audio file. Please try a different file.');
                     }
                 };
 
-                reader.onerror = () => {
+                reader.onerror = (error) => {
+                    console.error('FileReader error:', error);
                     alert('⚠️ Error reading the file. Please try again.');
                 };
 
+                console.log('Starting to read file...');
                 reader.readAsDataURL(file);
             },
 
@@ -2407,6 +2709,10 @@
 
             playAlarmSound() {
                 // Stop any existing alarm
+                if (this.alarmAudio) {
+                    this.alarmAudio.pause();
+                    this.alarmAudio = null;
+                }
                 if (this.alarmInterval) {
                     clearInterval(this.alarmInterval);
                     this.alarmInterval = null;
@@ -2451,34 +2757,243 @@
                                 font-weight: 600;
                                 cursor: pointer;
                                 width: 100%;
-                            ">OK</button>
+                            ">OK - Stop Alarm</button>
                         </div>
                     </div>
                 `;
                 
                 document.body.insertAdjacentHTML('beforeend', modalHTML);
 
-                // Play alarm sound immediately and continuously
-                this.playAlarmSoundOnce();
+                // Create and play looped audio for continuous alarm
+                console.log('========== ALARM STARTED ==========');
+                console.log('Current time:', new Date().toLocaleTimeString());
                 
-                // Set up continuous playback - plays every 2 seconds
+                const soundType = localStorage.getItem('notificationSound') || 'bell';
+                const volume = (localStorage.getItem('volume') || 70) / 100;
+                
+                console.log('Sound type:', soundType, 'Volume:', volume);
+                
+                // Create audio element with loop
+                this.alarmAudio = new Audio();
+                this.alarmAudio.loop = true;
+                this.alarmAudio.volume = volume;
+                
+                // Set audio source
+                if (soundType === 'custom' && this.customSound) {
+                    console.log('Using custom sound');
+                    this.alarmAudio.src = this.customSound;
+                } else {
+                    console.log('Using default alarm sound - creating simple beep');
+                    // Use a simple, reliable beep sound
+                    // This creates a basic beep that works on all browsers
+                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const oscillator = audioContext.createOscillator();
+                    const gainNode = audioContext.createGain();
+                    
+                    oscillator.connect(gainNode);
+                    gainNode.connect(audioContext.destination);
+                    
+                    oscillator.frequency.value = 800; // 800 Hz beep
+                    gainNode.gain.value = volume * 0.3;
+                    
+                    oscillator.start();
+                    oscillator.stop(audioContext.currentTime + 0.5);
+                    
+                    // For looping, we'll use the fallback interval method
+                    console.log('Using fallback interval method for default sound');
+                    this.fallbackAlarmPlayback();
+                    return; // Don't try to play the audio element
+                }
+                
+                // Play audio with promise handling
+                const playPromise = this.alarmAudio.play();
+                if (playPromise !== undefined) {
+                    playPromise
+                        .then(() => {
+                            console.log('✅ Alarm playing successfully (looped)');
+                        })
+                        .catch(error => {
+                            console.error('❌ Failed to play alarm:', error);
+                            // Fallback to interval-based playback
+                            this.fallbackAlarmPlayback();
+                        });
+                }
+                
+                // Show browser notification
+                this.showAlarmNotification();
+                
+                // Vibrate device if supported
+                if ('vibrate' in navigator) {
+                    // Vibrate pattern: vibrate 500ms, pause 200ms, repeat
+                    const vibratePattern = [500, 200, 500, 200, 500];
+                    navigator.vibrate(vibratePattern);
+                }
+                
+                // Request wake lock to prevent device sleep
+                this.requestWakeLock();
+                
+                // Auto-stop alarm after 5 minutes (300000 milliseconds)
+                const stopTime = new Date(Date.now() + 300000);
+                console.log('Alarm will auto-stop at:', stopTime.toLocaleTimeString());
+                
+                this.alarmStopTimeout = setTimeout(() => {
+                    console.log('========== AUTO-STOP TRIGGERED ==========');
+                    console.log('5 minutes elapsed, stopping alarm at:', new Date().toLocaleTimeString());
+                    this.stopAlarm();
+                }, 300000);
+                
+                console.log('Alarm will ring continuously for 5 minutes');
+                console.log('===================================');
+            },
+            
+            fallbackAlarmPlayback() {
+                console.log('Using fallback alarm playback (interval-based)');
+                this.playAlarmSoundOnce();
                 this.alarmInterval = setInterval(() => {
                     this.playAlarmSoundOnce();
                 }, 2000);
+            },
+            
+            createDefaultAlarmSound(volume) {
+                // Create a 2-second alarm beep using Web Audio API
+                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                const sampleRate = audioContext.sampleRate;
+                const duration = 2; // 2 seconds
+                const numSamples = sampleRate * duration;
                 
-                console.log('Alarm started - playing every 2 seconds');
+                const audioBuffer = audioContext.createBuffer(1, numSamples, sampleRate);
+                const channelData = audioBuffer.getChannelData(0);
+                
+                // Create alarm beep pattern: beep-beep-pause
+                for (let i = 0; i < numSamples; i++) {
+                    const time = i / sampleRate;
+                    const frequency = 800; // Hz
+                    
+                    // Create beep pattern
+                    let amplitude = 0;
+                    if (time < 0.2) {
+                        // First beep
+                        amplitude = Math.sin(2 * Math.PI * frequency * time) * 0.3;
+                    } else if (time > 0.3 && time < 0.5) {
+                        // Second beep
+                        amplitude = Math.sin(2 * Math.PI * frequency * time) * 0.3;
+                    }
+                    
+                    channelData[i] = amplitude;
+                }
+                
+                // Convert buffer to WAV blob
+                const wavBlob = this.audioBufferToWav(audioBuffer);
+                const blobUrl = URL.createObjectURL(wavBlob);
+                this.alarmAudio.src = blobUrl;
+                
+                // Clean up blob URL after audio loads
+                this.alarmAudio.onloadeddata = () => {
+                    console.log('Default alarm sound loaded');
+                };
+            },
+            
+            audioBufferToWav(buffer) {
+                const numChannels = buffer.numberOfChannels;
+                const sampleRate = buffer.sampleRate;
+                const format = 1; // PCM
+                const bitDepth = 16;
+                
+                const bytesPerSample = bitDepth / 8;
+                const blockAlign = numChannels * bytesPerSample;
+                
+                const data = buffer.getChannelData(0);
+                const dataLength = data.length * bytesPerSample;
+                
+                const arrayBuffer = new ArrayBuffer(44 + dataLength);
+                const view = new DataView(arrayBuffer);
+                
+                // WAV header
+                this.writeString(view, 0, 'RIFF');
+                view.setUint32(4, 36 + dataLength, true);
+                this.writeString(view, 8, 'WAVE');
+                this.writeString(view, 12, 'fmt ');
+                view.setUint32(16, 16, true);
+                view.setUint16(20, format, true);
+                view.setUint16(22, numChannels, true);
+                view.setUint32(24, sampleRate, true);
+                view.setUint32(28, sampleRate * blockAlign, true);
+                view.setUint16(32, blockAlign, true);
+                view.setUint16(34, bitDepth, true);
+                this.writeString(view, 36, 'data');
+                view.setUint32(40, dataLength, true);
+                
+                // Write audio data
+                const volume = 0.8;
+                let offset = 44;
+                for (let i = 0; i < data.length; i++) {
+                    const sample = Math.max(-1, Math.min(1, data[i]));
+                    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
+                    offset += 2;
+                }
+                
+                return new Blob([arrayBuffer], { type: 'audio/wav' });
+            },
+            
+            writeString(view, offset, string) {
+                for (let i = 0; i < string.length; i++) {
+                    view.setUint8(offset + i, string.charCodeAt(i));
+                }
+            },
+            
+            showAlarmNotification() {
+                // Request notification permission if not granted
+                if ('Notification' in window) {
+                    if (Notification.permission === 'granted') {
+                        new Notification('⏰ StudyFlow - Time\'s Up!', {
+                            body: `Your ${this.currentSubject || 'study'} session is complete!`,
+                            icon: '📚',
+                            requireInteraction: true,
+                            tag: 'studyflow-alarm'
+                        });
+                    } else if (Notification.permission !== 'denied') {
+                        Notification.requestPermission().then(permission => {
+                            if (permission === 'granted') {
+                                new Notification('⏰ StudyFlow - Time\'s Up!', {
+                                    body: `Your ${this.currentSubject || 'study'} session is complete!`,
+                                    icon: '📚',
+                                    requireInteraction: true,
+                                    tag: 'studyflow-alarm'
+                                });
+                            }
+                        });
+                    }
+                }
+            },
+            
+            requestWakeLock() {
+                if ('wakeLock' in navigator) {
+                    navigator.wakeLock.request('screen')
+                        .then(wakeLock => {
+                            this.wakeLock = wakeLock;
+                            console.log('✅ Wake lock acquired - screen will stay on');
+                        })
+                        .catch(err => {
+                            console.log('⚠️ Wake lock failed:', err.message);
+                        });
+                }
             },
 
             playAlarmSoundOnce() {
                 const soundType = localStorage.getItem('notificationSound') || 'bell';
                 const volume = (localStorage.getItem('volume') || 70) / 100;
 
+                console.log('playAlarmSoundOnce called - soundType:', soundType, 'volume:', volume);
+
                 if (soundType === 'custom' && this.customSound) {
                     // Play custom sound
+                    console.log('Playing custom sound');
                     try {
                         const audio = new Audio(this.customSound);
                         audio.volume = volume;
-                        audio.play().catch(error => {
+                        audio.play().then(() => {
+                            console.log('Custom sound played successfully');
+                        }).catch(error => {
                             console.error('Error playing custom sound:', error);
                         });
                     } catch (error) {
@@ -2486,6 +3001,7 @@
                     }
                 } else {
                     // Play VERY JOYFUL celebration sound - "Happy Birthday" style
+                    console.log('Playing default celebration sound');
                     try {
                         const audioContext = new (window.AudioContext || window.webkitAudioContext)();
                         
@@ -2558,20 +3074,58 @@
             },
 
             stopAlarm() {
-                // Stop the alarm interval
+                console.log('Stopping alarm...');
+                
+                // Stop the alarm audio
+                if (this.alarmAudio) {
+                    this.alarmAudio.pause();
+                    this.alarmAudio.currentTime = 0;
+                    this.alarmAudio = null;
+                    console.log('Alarm audio stopped');
+                }
+                
+                // Stop the alarm interval (fallback)
                 if (this.alarmInterval) {
                     clearInterval(this.alarmInterval);
                     this.alarmInterval = null;
+                    console.log('Alarm interval stopped');
+                }
+                
+                // Stop the 5-minute auto-stop timeout
+                if (this.alarmStopTimeout) {
+                    clearTimeout(this.alarmStopTimeout);
+                    this.alarmStopTimeout = null;
+                    console.log('Auto-stop timeout cleared');
+                }
+                
+                // Release wake lock
+                if (this.wakeLock) {
+                    this.wakeLock.release()
+                        .then(() => {
+                            console.log('Wake lock released');
+                        })
+                        .catch(err => {
+                            console.log('Wake lock release error:', err);
+                        });
+                    this.wakeLock = null;
                 }
                 
                 // Remove the modal
                 const modal = document.getElementById('alarmModal');
                 if (modal) {
                     modal.remove();
+                    console.log('Alarm modal removed');
                 }
+                
+                console.log('✅ Alarm fully stopped');
             },
 
             exportData() {
+                // For JSON backup export
+                this.exportJSONBackup();
+            },
+
+            exportJSONBackup() {
                 const data = {
                     subjects: JSON.parse(localStorage.getItem('subjects')) || [],
                     sessions: JSON.parse(localStorage.getItem('sessions')) || [],
@@ -2593,7 +3147,138 @@
                 a.click();
                 URL.revokeObjectURL(url);
                 
-                alert('✅ Data exported successfully!');
+                alert('✅ JSON backup exported successfully!');
+            },
+
+            exportToExcel() {
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
+                
+                // Group data by date
+                const dateMap = {};
+                
+                // Process sessions
+                sessions.forEach(session => {
+                    const date = new Date(session.date);
+                    const dateKey = date.toISOString().split('T')[0]; // YYYY-MM-DD
+                    
+                    if (!dateMap[dateKey]) {
+                        dateMap[dateKey] = {
+                            date: dateKey,
+                            displayDate: date.toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                            }),
+                            totalSeconds: 0,
+                            subjects: {}
+                        };
+                    }
+                    
+                    const subject = session.subject || 'Unknown';
+                    if (!dateMap[dateKey].subjects[subject]) {
+                        dateMap[dateKey].subjects[subject] = {
+                            time: 0,
+                            tasks: []
+                        };
+                    }
+                    
+                    dateMap[dateKey].totalSeconds += session.duration;
+                    dateMap[dateKey].subjects[subject].time += session.duration;
+                });
+                
+                // Process tasks
+                tasks.forEach(task => {
+                    const dateKey = task.date; // Already in YYYY-MM-DD format
+                    
+                    if (!dateMap[dateKey]) {
+                        const [year, month, day] = dateKey.split('-');
+                        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                        dateMap[dateKey] = {
+                            date: dateKey,
+                            displayDate: date.toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                            }),
+                            totalSeconds: 0,
+                            subjects: {}
+                        };
+                    }
+                    
+                    const subject = task.subject || 'Unknown';
+                    if (!dateMap[dateKey].subjects[subject]) {
+                        dateMap[dateKey].subjects[subject] = {
+                            time: 0,
+                            tasks: []
+                        };
+                    }
+                    
+                    dateMap[dateKey].subjects[subject].tasks.push(task.description);
+                });
+                
+                // Convert to CSV format with proper table structure
+                let csv = '\uFEFF'; // UTF-8 BOM for Excel
+                
+                // Main header
+                csv += 'Date,Total Time,Subject,Subject Time,Tasks/Topics\n';
+                
+                // Sort dates
+                const sortedDates = Object.keys(dateMap).sort();
+                
+                sortedDates.forEach(dateKey => {
+                    const dayData = dateMap[dateKey];
+                    
+                    // Format total time
+                    const totalHours = Math.floor(dayData.totalSeconds / 3600);
+                    const totalMinutes = Math.floor((dayData.totalSeconds % 3600) / 60);
+                    const totalSeconds = dayData.totalSeconds % 60;
+                    const totalTimeStr = `${totalHours}h ${totalMinutes}m ${totalSeconds}s`;
+                    
+                    // Get all subjects for this date
+                    const subjects = Object.entries(dayData.subjects);
+                    
+                    if (subjects.length === 0) {
+                        // No subjects for this date
+                        csv += `"${dayData.displayDate}",${totalTimeStr},No data,0h 0m 0s,No tasks\n`;
+                    } else {
+                        // First row for this date includes date and total time
+                        const [firstSubject, firstData] = subjects[0];
+                        const firstHours = Math.floor(firstData.time / 3600);
+                        const firstMinutes = Math.floor((firstData.time % 3600) / 60);
+                        const firstSeconds = firstData.time % 60;
+                        const firstTimeStr = `${firstHours}h ${firstMinutes}m ${firstSeconds}s`;
+                        const firstTasks = firstData.tasks.length > 0 ? firstData.tasks.join('; ') : 'No tasks';
+                        
+                        csv += `"${dayData.displayDate}",${totalTimeStr},${firstSubject},${firstTimeStr},"${firstTasks}"\n`;
+                        
+                        // Remaining subjects (date and total time columns are empty)
+                        for (let i = 1; i < subjects.length; i++) {
+                            const [subject, data] = subjects[i];
+                            const hours = Math.floor(data.time / 3600);
+                            const minutes = Math.floor((data.time % 3600) / 60);
+                            const seconds = data.time % 60;
+                            const timeStr = `${hours}h ${minutes}m ${seconds}s`;
+                            const tasksStr = data.tasks.length > 0 ? data.tasks.join('; ') : 'No tasks';
+                            
+                            csv += `,,${subject},${timeStr},"${tasksStr}"\n`;
+                        }
+                    }
+                    
+                    // Empty row between dates for better readability
+                    csv += '\n';
+                });
+                
+                // Create and download file
+                const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `StudyFlow-Data-${new Date().toISOString().split('T')[0]}.csv`;
+                a.click();
+                URL.revokeObjectURL(url);
+                
+                alert('✅ Excel file exported successfully!\n\nOpen in Excel or Google Sheets for best viewing.');
             },
 
             clearAllData() {
@@ -2624,6 +3309,21 @@
             }
             
             app.init();
+        });
+        
+        // Handle visibility change to keep alarm playing in background
+        document.addEventListener('visibilitychange', () => {
+            if (app.alarmAudio && !app.alarmAudio.paused) {
+                if (document.hidden) {
+                    console.log('Page hidden - alarm should continue playing');
+                    // Try to keep playing
+                    app.alarmAudio.play().catch(err => {
+                        console.log('Could not resume alarm:', err);
+                    });
+                } else {
+                    console.log('Page visible again');
+                }
+            }
         });
     </script>
 
