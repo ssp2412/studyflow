@@ -1795,9 +1795,14 @@
                 const editTaskSubjectSelect = document.getElementById('editTaskSubject');
                 const subjectList = document.getElementById('subjectList');
 
-                subjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
-                taskSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
-                editTaskSubjectSelect.innerHTML = subjects.map(s => `<option value="${s}">${s}</option>`).join('');
+                // Add placeholder and options
+                const subjectOptions = subjects.length > 0 
+                    ? subjects.map(s => `<option value="${s}">${s}</option>`).join('')
+                    : '<option value="">No subjects - Add one in Subjects tab</option>';
+                    
+                subjectSelect.innerHTML = subjectOptions;
+                taskSubjectSelect.innerHTML = subjectOptions;
+                editTaskSubjectSelect.innerHTML = subjectOptions;
 
                 if (subjects.length === 0) {
                     subjectList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📚</div><div class="empty-state-text">No subjects yet.<br>Add your first subject above!</div></div>';
