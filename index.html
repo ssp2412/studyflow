@@ -74,6 +74,12 @@
             font-size: 14px;
         }
 
+        .header-copyright {
+            margin-top: 10px;
+            font-size: 11px;
+            opacity: 0.8;
+        }
+
         /* Tab Navigation */
         .tab-nav {
             display: grid;
@@ -1043,15 +1049,18 @@
             <div class="header-icon">📚</div>
             <h1>StudyFlow</h1>
             <p>Track your study time effectively</p>
+            <div class="header-copyright">
+                © 2024 SSPATIL. All rights reserved.
+            </div>
         </div>
 
         <!-- Tab Navigation -->
         <div class="tab-nav">
-            <button class="tab-btn active" onclick="app.switchTab('timer')">⏱️ Timer</button>
-            <button class="tab-btn" onclick="app.switchTab('analytics')">📊 Stats</button>
-            <button class="tab-btn" onclick="app.switchTab('tasks')">✅ Tasks</button>
-            <button class="tab-btn" onclick="app.switchTab('subjects')">📖 Subjects</button>
-            <button class="tab-btn" onclick="app.switchTab('settings')">⚙️ Settings</button>
+            <button class="tab-btn active" onclick="app.switchTab('timer', event)">⏱️ Timer</button>
+            <button class="tab-btn" onclick="app.switchTab('analytics', event)">📊 Stats</button>
+            <button class="tab-btn" onclick="app.switchTab('tasks', event)">✅ Tasks</button>
+            <button class="tab-btn" onclick="app.switchTab('subjects', event)">📖 Subjects</button>
+            <button class="tab-btn" onclick="app.switchTab('settings', event)">⚙️ Settings</button>
         </div>
 
         <!-- Timer Tab -->
@@ -1199,7 +1208,7 @@
 
                 <div class="input-group">
                     <label class="input-label">Task Description</label>
-                    <input type="text" id="taskDescription" class="input-field" placeholder="Enter task details...">
+                    <input type="text" id="taskDescription" class="input-field" placeholder="Enter task details..." maxlength="200">
                 </div>
 
                 <div class="input-group">
@@ -1223,7 +1232,7 @@
             <div class="card">
                 <div class="section-title">
                     <span class="section-icon">📋</span>
-                    Tasks
+                    Tasks — <span id="tasksViewingDate" style="font-weight: 600; color: var(--text-secondary); font-size: 13px;"></span>
                 </div>
 
                 <div class="input-group">
@@ -1247,7 +1256,7 @@
 
                 <div class="input-group">
                     <label class="input-label">Subject Name</label>
-                    <input type="text" id="newSubject" class="input-field" placeholder="e.g., Mathematics">
+                    <input type="text" id="newSubject" class="input-field" placeholder="e.g., Mathematics" maxlength="60">
                 </div>
 
                 <button class="btn btn-primary" onclick="app.addSubject()">➕ Add Subject</button>
@@ -1317,6 +1326,11 @@
                     Data Management
                 </div>
 
+                <div id="syncStatusBar" style="font-size: 12px; color: var(--text-tertiary); margin-bottom: 14px; display: flex; align-items: center; gap: 6px;">
+                    <span id="syncDot" style="width: 7px; height: 7px; border-radius: 50%; background: var(--gray-lighter); display: inline-block;"></span>
+                    <span id="syncLabel">Cloud sync: waiting…</span>
+                </div>
+
                 <button class="btn btn-primary" onclick="app.exportToExcel()" style="margin-bottom: 10px;">
                     📊 Export to Excel (CSV)
                 </button>
@@ -1375,7 +1389,7 @@
 
             <div class="input-group">
                 <label class="input-label">Task Description</label>
-                <input type="text" id="editTaskDescription" class="input-field">
+                <input type="text" id="editTaskDescription" class="input-field" maxlength="200">
             </div>
 
             <div class="input-group">
@@ -1405,7 +1419,7 @@
         <div class="copyright-footer">
             <div class="copyright-logo">SSPATIL</div>
             <div class="copyright-text">
-                © <span class="copyright-year">2025</span> SSPATIL. All rights reserved.
+                © <span class="copyright-year" id="copyrightYear">2025</span> SSPATIL. All rights reserved.
             </div>
             <div class="copyright-text" style="margin-top: 8px; font-size: 11px;">
                 StudyFlow - Smart Study Time Tracker
@@ -1430,11 +1444,15 @@
             currentYear: new Date().getFullYear(),
             customSound: null,
             customSoundName: null,
+            decodedCustomSoundBuffer: null, // Cached AudioBuffer — avoids re-decoding on every alarm tick
             alarmInterval: null,
             alarmStopTimeout: null,
+            vibrateInterval: null,  // Tracks repeating vibration interval
             alarmAudio: null,
             wakeLock: null,
             audioContextInitialized: false,
+            persistentAudioContext: null, // CRITICAL: Keeps audio playing even with screen off
+            activeAlarmNodes: [], // Tracks all scheduled oscillator/buffer nodes for clean stop
 
             init() {
                 this.loadSubjects();
@@ -1445,27 +1463,28 @@
                 this.loadTasks();
                 this.initializeTaskDate();
                 this.enableAudioOnInteraction();
+                // Keep copyright year always current
+                const yearEl = document.getElementById('copyrightYear');
+                if (yearEl) yearEl.textContent = new Date().getFullYear();
             },
             
             enableAudioOnInteraction() {
-                // Initialize audio context on first user interaction
+                const interactionEvents = ['click', 'touchstart', 'keydown'];
                 const enableAudio = () => {
-                    if (!this.audioContextInitialized) {
-                        const AudioContext = window.AudioContext || window.webkitAudioContext;
-                        if (AudioContext) {
-                            const ctx = new AudioContext();
-                            if (ctx.state === 'suspended') {
-                                ctx.resume();
-                            }
+                    const AudioContext = window.AudioContext || window.webkitAudioContext;
+                    if (AudioContext) {
+                        if (!this.persistentAudioContext || this.persistentAudioContext.state === 'closed') {
+                            this.persistentAudioContext = new AudioContext();
                             this.audioContextInitialized = true;
-                            console.log('✅ Audio context initialized');
+                        } else if (this.persistentAudioContext.state === 'suspended') {
+                            this.persistentAudioContext.resume().catch(() => {});
+                            this.audioContextInitialized = true;
                         }
                     }
+                    interactionEvents.forEach(evt => document.removeEventListener(evt, enableAudio));
                 };
-                
-                // Listen for any user interaction
-                ['click', 'touchstart', 'keydown'].forEach(event => {
-                    document.addEventListener(event, enableAudio, { once: true });
+                interactionEvents.forEach(event => {
+                    document.addEventListener(event, enableAudio);
                 });
             },
 
@@ -1473,13 +1492,21 @@
                 const today = new Date().toISOString().split('T')[0];
                 document.getElementById('taskDate').value = today;
                 document.getElementById('taskDateSelector').value = today;
+                // Keep selectedTaskDate in sync so loadTasks shows today on init
+                this.selectedTaskDate = today;
             },
 
-            switchTab(tab) {
+            switchTab(tab, event) {
                 document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
                 document.querySelectorAll('.tab-content').forEach(content => content.classList.remove('active'));
                 
-                event.target.classList.add('active');
+                if (event && event.target) {
+                    event.target.classList.add('active');
+                } else {
+                    // Fallback: find button by matching onclick text
+                    const btn = document.querySelector(`.tab-btn[onclick*="'${tab}'"]`);
+                    if (btn) btn.classList.add('active');
+                }
                 document.getElementById(tab + 'Tab').classList.add('active');
 
                 if (tab === 'analytics') {
@@ -1499,17 +1526,34 @@
                     return;
                 }
 
+                // Block if a timer is already running
+                if (this.isRunning || this.isPaused) {
+                    alert('⚠️ A timer is already running! Stop it before starting a new one.');
+                    return;
+                }
+
                 // Set the duration
                 document.getElementById('durationInput').value = minutes;
                 
                 // Start the timer immediately
                 this.startTimer();
                 
-                // Optional: Show a notification
-                alert(`⏱️ Quick timer started for ${minutes} minutes!`);
+                // Only show toast if timer actually started
+                if (this.isRunning) {
+                    this.showToast(`⏱️ ${minutes} min timer started!`);
+                }
             },
 
             startTimer() {
+                // Prevent starting a new timer while the alarm modal is showing.
+                if (document.getElementById('alarmModal')) {
+                    alert('⚠️ Please dismiss the current alarm first!');
+                    return;
+                }
+
+                // Prevent double-starting a running timer
+                if (this.isRunning) return;
+
                 const subject = document.getElementById('subjectSelect').value;
                 const duration = parseInt(document.getElementById('durationInput').value);
 
@@ -1525,7 +1569,8 @@
 
                 this.currentSubject = subject;
                 this.currentDuration = duration * 60;
-                this.startTime = Date.now() - this.elapsedTime;
+                this.elapsedTime = 0; // Reset elapsed time for fresh start
+                this.startTime = Date.now();
                 this.isRunning = true;
                 this.isPaused = false;
 
@@ -1540,7 +1585,9 @@
                 document.getElementById('timerDisplay').textContent = timeString;
                 document.getElementById('fullscreenTimer').textContent = timeString;
 
-                this.timer = setInterval(() => this.updateTimer(), 100);
+                // Clear any stale interval before starting fresh
+                if (this.timer) clearInterval(this.timer);
+                this.timer = setInterval(() => this.updateTimer(), 500);
 
                 this.updateTimerButtons();
                 this.updateStatusBadge();
@@ -1548,6 +1595,8 @@
 
             pauseTimer() {
                 if (this.isRunning) {
+                    // Capture accurate elapsed time BEFORE clearing the interval
+                    this.elapsedTime = Date.now() - this.startTime;
                     clearInterval(this.timer);
                     this.isRunning = false;
                     this.isPaused = true;
@@ -1557,28 +1606,65 @@
                     this.startTime = Date.now() - this.elapsedTime;
                     this.isRunning = true;
                     this.isPaused = false;
-                    this.timer = setInterval(() => this.updateTimer(), 100);
+                    this.timer = setInterval(() => this.updateTimer(), 500);
                     this.updateTimerButtons();
                     this.updateStatusBadge();
                 }
             },
 
             stopTimer() {
-                if (!confirm('⏹️ Stop timer and save session?')) return;
-
+                // Stop the interval FIRST so updateTimer() cannot fire while the confirm dialog is open
                 clearInterval(this.timer);
+                this.timer = null;
                 
-                // Stop any running alarm
+                // Capture elapsed time correctly:
+                // - If running: recalculate from startTime (interval just stopped, most accurate)
+                // - If paused:  use stored elapsedTime (startTime is stale from last resume point)
+                const capturedElapsed = this.isPaused
+                    ? this.elapsedTime
+                    : (Date.now() - this.startTime);
+                const capturedSeconds = Math.floor(capturedElapsed / 1000);
+
+                // Don't allow saving a session shorter than 5 seconds — avoids accidental zero-duration entries
+                if (capturedSeconds < 5) {
+                    if (!confirm('⏹️ Stop and discard this session? (Less than 5 seconds elapsed — too short to save)')) {
+                        // User cancelled — restore timer state
+                        if (!this.isPaused) {
+                            this.startTime = Date.now() - capturedElapsed;
+                            this.timer = setInterval(() => this.updateTimer(), 500);
+                        }
+                        return;
+                    }
+                    if (this.alarmInterval) { clearInterval(this.alarmInterval); this.alarmInterval = null; }
+                    if (this.alarmStopTimeout) { clearTimeout(this.alarmStopTimeout); this.alarmStopTimeout = null; }
+                    this.resetTimer();
+                    return;
+                }
+
+                if (!confirm('⏹️ Stop timer and save session?')) {
+                    // User cancelled — restore timer state
+                    if (!this.isPaused) {
+                        this.startTime = Date.now() - capturedElapsed;
+                        this.timer = setInterval(() => this.updateTimer(), 500);
+                    }
+                    return;
+                }
+
+                // Stop any running alarm (interval + 5-min auto-stop timeout)
                 if (this.alarmInterval) {
                     clearInterval(this.alarmInterval);
                     this.alarmInterval = null;
+                }
+                if (this.alarmStopTimeout) {
+                    clearTimeout(this.alarmStopTimeout);
+                    this.alarmStopTimeout = null;
                 }
 
                 const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
                 const newSession = {
                     id: Date.now(),
                     subject: this.currentSubject,
-                    duration: Math.floor(this.elapsedTime / 1000),
+                    duration: Math.floor(capturedElapsed / 1000),
                     date: new Date().toISOString(),
                     dateString: new Date().toDateString()
                 };
@@ -1590,6 +1676,7 @@
                 this.updateTodayStats();
                 this.updateCalendar();
                 this.updateSessionsDisplay();
+                this.triggerCloudSave();
 
                 const minutes = Math.floor(newSession.duration / 60);
                 const seconds = newSession.duration % 60;
@@ -1710,26 +1797,27 @@
                 // Timer complete when remaining time hits 0
                 if (remainingSeconds <= 0) {
                     clearInterval(this.timer);
+                    this.timer = null;      // Null immediately — prevents any re-entry
                     this.isRunning = false;
-                    this.playAlarmSound();
-                    
-                    // Auto-save session when timer completes
+
+                    // Guard against double-fire: if alarm modal already exists, do not re-save or re-alarm
+                    if (document.getElementById('alarmModal')) return;
+
+                    // Save session when timer completes
                     const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
                     const newSession = {
                         id: Date.now(),
                         subject: this.currentSubject,
-                        duration: this.currentDuration, // Full duration completed
+                        duration: this.currentDuration,
                         date: new Date().toISOString(),
                         dateString: new Date().toDateString()
                     };
-
                     sessions.push(newSession);
                     localStorage.setItem('sessions', JSON.stringify(sessions));
 
-                    this.resetTimer();
-                    this.updateTodayStats();
-                    this.updateCalendar();
-                    this.updateSessionsDisplay();
+                    // Play alarm — UI updates when user dismisses
+                    this.triggerCloudSave();
+                    this.playAlarmSound();
                 }
             },
 
@@ -1795,24 +1883,51 @@
                 const editTaskSubjectSelect = document.getElementById('editTaskSubject');
                 const subjectList = document.getElementById('subjectList');
 
-                // Add placeholder and options
-                const subjectOptions = subjects.length > 0 
-                    ? subjects.map(s => `<option value="${s}">${s}</option>`).join('')
-                    : '<option value="">No subjects - Add one in Subjects tab</option>';
-                    
-                subjectSelect.innerHTML = subjectOptions;
-                taskSubjectSelect.innerHTML = subjectOptions;
-                editTaskSubjectSelect.innerHTML = subjectOptions;
+                // Build subject options safely using DOM to prevent XSS
+                const buildOptions = (selectEl, subjectArr, emptyText) => {
+                    if (!selectEl) return;
+                    selectEl.innerHTML = '';
+                    if (subjectArr.length === 0) {
+                        const opt = document.createElement('option');
+                        opt.value = '';
+                        opt.textContent = emptyText;
+                        selectEl.appendChild(opt);
+                    } else {
+                        subjectArr.forEach(s => {
+                            const opt = document.createElement('option');
+                            opt.value = s;         // safe: .value property, not innerHTML
+                            opt.textContent = s;   // safe: textContent
+                            selectEl.appendChild(opt);
+                        });
+                    }
+                };
+
+                const emptyMsg = 'No subjects - Add one in Subjects tab';
+                buildOptions(subjectSelect, subjects, emptyMsg);
+                buildOptions(taskSubjectSelect, subjects, emptyMsg);
+                if (editTaskSubjectSelect) buildOptions(editTaskSubjectSelect, subjects, emptyMsg);
 
                 if (subjects.length === 0) {
                     subjectList.innerHTML = '<div class="empty-state"><div class="empty-state-icon">📚</div><div class="empty-state-text">No subjects yet.<br>Add your first subject above!</div></div>';
                 } else {
-                    subjectList.innerHTML = subjects.map(subject => `
-                        <div class="subject-item">
-                            <span class="subject-name">${subject}</span>
-                            <button class="btn-delete" onclick="app.deleteSubject('${subject}')">🗑️ Delete</button>
-                        </div>
-                    `).join('');
+                    subjectList.innerHTML = '';
+                    subjects.forEach(subject => {
+                        const div = document.createElement('div');
+                        div.className = 'subject-item';
+                        
+                        const nameSpan = document.createElement('span');
+                        nameSpan.className = 'subject-name';
+                        nameSpan.textContent = subject; // safe: textContent, not innerHTML
+                        
+                        const delBtn = document.createElement('button');
+                        delBtn.className = 'btn-delete';
+                        delBtn.textContent = '🗑️ Delete';
+                        delBtn.addEventListener('click', () => app.deleteSubject(subject));
+                        
+                        div.appendChild(nameSpan);
+                        div.appendChild(delBtn);
+                        subjectList.appendChild(div);
+                    });
                 }
             },
 
@@ -1837,11 +1952,18 @@
 
                 input.value = '';
                 this.loadSubjects();
+                this.triggerCloudSave();
                 
                 alert('✅ Subject added successfully!');
             },
 
             deleteSubject(subject) {
+                // Block deletion if timer is running or paused on this subject
+                if ((this.isRunning || this.isPaused) && this.currentSubject === subject) {
+                    alert('⚠️ Cannot delete "' + subject + '" while a timer is active for it. Stop the timer first.');
+                    return;
+                }
+
                 if (!confirm(`🗑️ Delete "${subject}"?`)) return;
 
                 const subjects = JSON.parse(localStorage.getItem('subjects')) || [];
@@ -1849,6 +1971,7 @@
                 localStorage.setItem('subjects', JSON.stringify(filtered));
 
                 this.loadSubjects();
+                this.triggerCloudSave();
                 
                 alert('✅ Subject deleted successfully!');
             },
@@ -1921,7 +2044,7 @@
                     html += `<div class="${className}" onclick="app.selectCalendarDate('${dateYMD}')" style="cursor: pointer;">${day}</div>`;
                 }
 
-                const remainingDays = 42 - (firstDayOfWeek + lastDay.getDate());
+                const remainingDays = Math.max(0, 42 - (firstDayOfWeek + lastDay.getDate()));
                 for (let i = 1; i <= remainingDays; i++) {
                     html += `<div class="calendar-day other-month">${i}</div>`;
                 }
@@ -1944,7 +2067,6 @@
             },
 
             selectCalendarDate(dateYMD) {
-                console.log('Calendar date clicked:', dateYMD);
                 
                 // Make sure we're on the Analytics tab
                 document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -1969,12 +2091,9 @@
             },
 
             showDateDetails(dateYMD) {
-                console.log('showDateDetails called with:', dateYMD);
                 const tasks = JSON.parse(localStorage.getItem('tasks')) || [];
                 const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
                 
-                console.log('Total tasks:', tasks.length);
-                console.log('Total sessions:', sessions.length);
                 
                 // Parse the date
                 const [year, month, day] = dateYMD.split('-');
@@ -1987,16 +2106,12 @@
                     year: 'numeric' 
                 });
                 
-                console.log('Looking for date:', dateYMD);
-                console.log('Target date string:', targetDateString);
                 
                 // Filter tasks for this date
                 const dateTasks = tasks.filter(t => t.date === dateYMD);
-                console.log('Found tasks for date:', dateTasks.length);
                 
                 // Filter sessions for this date
                 const dateSessions = sessions.filter(s => new Date(s.date).toDateString() === targetDateString);
-                console.log('Found sessions for date:', dateSessions.length);
                 
                 const totalSeconds = dateSessions.reduce((sum, s) => sum + s.duration, 0);
                 const totalHours = Math.floor(totalSeconds / 3600);
@@ -2019,7 +2134,6 @@
                 const titleElement = document.getElementById('selectedDateTitle');
                 if (titleElement) {
                     titleElement.textContent = displayDateStr;
-                    console.log('Updated title to:', displayDateStr);
                 }
                 
                 // Build the HTML
@@ -2092,10 +2206,10 @@
                         html += `
                             <div class="task-item status-${task.status}" style="margin-bottom: 12px;">
                                 <div class="task-header">
-                                    <span class="task-subject" style="font-weight: 700; font-size: 16px; ${descriptionStyle}">${task.description}</span>
+                                    <span class="task-subject" style="font-weight: 700; font-size: 16px; ${descriptionStyle}">${app.escapeHTML(task.description)}</span>
                                     <span class="task-status-badge ${task.status}">${statusLabels[task.status]}</span>
                                 </div>
-                                <div class="task-description" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${task.subject}</div>
+                                <div class="task-description" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${app.escapeHTML(task.subject)}</div>
                             </div>
                         `;
                     });
@@ -2115,7 +2229,6 @@
                 const container = document.getElementById('dateDetailsContainer');
                 if (container) {
                     container.innerHTML = html;
-                    console.log('Updated dateDetailsContainer with HTML');
                 } else {
                     console.error('dateDetailsContainer element not found!');
                 }
@@ -2139,6 +2252,48 @@
                 // Keeping it empty to avoid breaking existing code that calls it
             },
 
+            showToast(message, duration = 2500) {
+                // Remove existing toast if present
+                const existing = document.getElementById('studyflowToast');
+                if (existing) existing.remove();
+
+                const toast = document.createElement('div');
+                toast.id = 'studyflowToast';
+                toast.textContent = message;
+                toast.style.cssText = `
+                    position: fixed;
+                    bottom: 30px;
+                    left: 50%;
+                    transform: translateX(-50%);
+                    background: rgba(15,23,42,0.92);
+                    color: white;
+                    padding: 12px 24px;
+                    border-radius: 12px;
+                    font-size: 14px;
+                    font-weight: 600;
+                    z-index: 99999;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+                    pointer-events: none;
+                    transition: opacity 0.3s ease;
+                    white-space: nowrap;
+                `;
+                document.body.appendChild(toast);
+                setTimeout(() => {
+                    toast.style.opacity = '0';
+                    setTimeout(() => toast.remove(), 300);
+                }, duration);
+            },
+
+            escapeHTML(str) {
+                if (str == null) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            },
+
             editSession(sessionId) {
                 const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
                 const session = sessions.find(s => s.id === sessionId);
@@ -2149,9 +2304,14 @@
                 }
 
                 const subjects = JSON.parse(localStorage.getItem('subjects')) || [];
-                const subjectOptions = subjects.map(s => 
-                    `<option value="${s}" ${s === session.subject ? 'selected' : ''}>${s}</option>`
-                ).join('');
+                // Build options safely to prevent XSS
+                const subjectOptions = subjects.map(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s;
+                    opt.textContent = s;
+                    if (s === session.subject) opt.selected = true;
+                    return opt.outerHTML;
+                }).join('');
 
                 const minutes = Math.floor(session.duration / 60);
                 const seconds = session.duration % 60;
@@ -2245,6 +2405,7 @@
                 this.updateSessionsDisplay();
                 this.updateTodayStats();
                 this.updateCalendar();
+                this.triggerCloudSave();
 
                 alert('✅ Session updated successfully!');
             },
@@ -2267,6 +2428,7 @@
                 this.updateSessionsDisplay();
                 this.updateTodayStats();
                 this.updateCalendar();
+                this.triggerCloudSave();
 
                 alert('✅ Session deleted!');
             },
@@ -2324,15 +2486,18 @@
                 tasks.push(newTask);
                 localStorage.setItem('tasks', JSON.stringify(tasks));
 
-                document.getElementById('taskSubject').value = '';
+                // Reset form fields but keep the date — user may want to add more tasks for the same date
+                document.getElementById('taskSubject').selectedIndex = 0;
                 document.getElementById('taskDescription').value = '';
                 this.selectTaskStatus('completed');
-                
-                const today = new Date().toISOString().split('T')[0];
-                document.getElementById('taskDate').value = today;
+
+                // Update the task viewer to show the date the task was just added to
+                this.selectedTaskDate = taskDateString;
+                document.getElementById('taskDateSelector').value = taskDateString;
 
                 this.loadTasks();
                 this.updateCalendar();
+                this.triggerCloudSave();
                 
                 const [year, month, day] = taskDateString.split('-');
                 const taskDateObj = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
@@ -2347,8 +2512,19 @@
                 if (this.selectedTaskDate) {
                     displayDate = this.selectedTaskDate;
                 } else {
-                    // Get today's date in YYYY-MM-DD format
                     displayDate = new Date().toISOString().split('T')[0];
+                }
+
+                // Update the section label to show which date is being viewed
+                const viewingLabel = document.getElementById('tasksViewingDate');
+                if (viewingLabel) {
+                    const [y, m, d] = displayDate.split('-');
+                    const labelDate = new Date(parseInt(y), parseInt(m) - 1, parseInt(d));
+                    const today = new Date().toISOString().split('T')[0];
+                    const isToday = displayDate === today;
+                    viewingLabel.textContent = isToday
+                        ? 'Today'
+                        : labelDate.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
                 }
 
                 const displayTasks = tasks.filter(t => t.date === displayDate);
@@ -2394,7 +2570,7 @@
                     const minutes = Math.floor((seconds % 3600) / 60);
                     breakdownHTML += `
                         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
-                            <span style="font-weight: 600; color: var(--text-primary);">${subject}</span>
+                            <span style="font-weight: 600; color: var(--text-primary);">${app.escapeHTML(subject)}</span>
                             <span style="color: var(--primary); font-weight: 600;">${hours}h ${minutes}m</span>
                         </div>
                     `;
@@ -2438,10 +2614,10 @@
                     return `
                         <div class="task-item status-${task.status}">
                             <div class="task-header">
-                                <span class="task-subject" style="font-weight: 700; font-size: 16px; ${descriptionStyle}">${task.description}</span>
+                                <span class="task-subject" style="font-weight: 700; font-size: 16px; ${descriptionStyle}">${app.escapeHTML(task.description)}</span>
                                 <span class="task-status-badge ${task.status}">${statusLabels[task.status]}</span>
                             </div>
-                            <div class="task-description" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${task.subject}</div>
+                            <div class="task-description" style="font-size: 13px; color: var(--text-secondary); margin-top: 4px;">${app.escapeHTML(task.subject)}</div>
                             <div class="task-date">📅 ${dateStr}</div>
                             <div class="task-actions">
                                 <button class="btn-task-action btn-edit-task" onclick="app.openEditTask(${task.id})">
@@ -2476,10 +2652,23 @@
                 this.editingTaskId = taskId;
                 this.editTaskStatus = task.status;
 
+                // Rebuild the edit subject dropdown fresh to catch any subjects added/removed since page load
+                this.loadSubjects();
+
                 // task.date is already in YYYY-MM-DD format
                 document.getElementById('editTaskDate').value = task.date;
 
-                document.getElementById('editTaskSubject').value = task.subject;
+                const editSubjectEl = document.getElementById('editTaskSubject');
+                editSubjectEl.value = task.subject;
+                // If the subject was deleted, add it back as a disabled option so data is not silently corrupted
+                if (editSubjectEl.value !== task.subject) {
+                    const ghostOpt = document.createElement('option');
+                    ghostOpt.value = task.subject;
+                    ghostOpt.textContent = task.subject + ' (deleted)';
+                    editSubjectEl.insertBefore(ghostOpt, editSubjectEl.firstChild);
+                    editSubjectEl.value = task.subject;
+                }
+
                 document.getElementById('editTaskDescription').value = task.description;
                 
                 document.querySelectorAll('#editStatusOptions .status-option').forEach(opt => {
@@ -2527,6 +2716,7 @@
                     this.closeTaskEditModal();
                     this.loadTasks();
                     this.updateCalendar();
+                    this.triggerCloudSave();
                     
                     alert('✅ Task updated successfully!');
                 }
@@ -2547,6 +2737,7 @@
                 this.loadTasks();
                 this.updateCalendar();
                 this.updateSessionsDisplay();
+                this.triggerCloudSave();
                 
                 alert('✅ Task deleted successfully!');
             },
@@ -2580,7 +2771,12 @@
                     document.getElementById('customSoundInfo').style.display = 'block';
                     document.getElementById('customSoundName').textContent = `Custom: ${customSoundName}`;
                 } else {
-                    document.querySelector(`[data-sound="${sound}"]`).classList.add('selected');
+                    // Fall back to 'bell' if the saved sound value has no matching option (e.g. 'custom' with no data)
+                    const safeSound = document.querySelector(`[data-sound="${sound}"]`) ? sound : 'bell';
+                    if (safeSound !== sound) {
+                        localStorage.setItem('notificationSound', 'bell');
+                    }
+                    document.querySelector(`[data-sound="${safeSound}"]`).classList.add('selected');
                 }
 
                 document.getElementById('volumeSlider').value = volume;
@@ -2594,15 +2790,14 @@
                     opt.classList.remove('selected');
                 });
                 document.querySelector(`[data-sound="${sound}"]`).classList.add('selected');
+                this.triggerCloudSave();
             },
 
             handleCustomSound(event) {
                 const file = event.target.files[0];
                 
-                console.log('Custom sound upload started:', file);
                 
                 if (!file) {
-                    console.log('No file selected');
                     return;
                 }
 
@@ -2612,10 +2807,6 @@
                 const hasValidExtension = validExtensions.some(ext => fileName.endsWith(ext));
                 const hasAudioType = file.type.includes('audio') || file.type === '';
                 
-                console.log('File name:', fileName);
-                console.log('File type:', file.type);
-                console.log('Has valid extension:', hasValidExtension);
-                console.log('Has audio type:', hasAudioType);
                 
                 if (!hasValidExtension && !hasAudioType) {
                     alert('⚠️ Please select a valid audio file (MP3, WAV, OGG, M4A)!');
@@ -2623,9 +2814,9 @@
                     return;
                 }
 
-                // Validate file size (max 5MB)
-                if (file.size > 5 * 1024 * 1024) {
-                    alert('⚠️ File size must be less than 5MB!');
+                // Validate file size (max 10MB for larger audio files)
+                if (file.size > 10 * 1024 * 1024) {
+                    alert('⚠️ File size must be less than 10MB!');
                     console.error('File too large:', file.size);
                     return;
                 }
@@ -2634,22 +2825,27 @@
                 
                 reader.onload = (e) => {
                     try {
-                        console.log('File loaded successfully');
                         const audioData = e.target.result;
                         this.customSound = audioData;
                         this.customSoundName = file.name;
+                        this.decodedCustomSoundBuffer = null; // Invalidate cache for new sound
                         
-                        console.log('Audio data length:', audioData.length);
                         
                         // Save to localStorage
                         try {
                             localStorage.setItem('customSound', audioData);
                             localStorage.setItem('customSoundName', file.name);
                             localStorage.setItem('notificationSound', 'custom');
-                            console.log('Saved to localStorage successfully');
                         } catch (storageError) {
                             console.error('LocalStorage error:', storageError);
-                            alert('⚠️ File is too large for storage. Try a smaller audio file (under 1MB recommended).');
+                            // Check if it's a quota error
+                            if (storageError.name === 'QuotaExceededError' || 
+                                storageError.message.includes('quota') ||
+                                storageError.message.includes('storage')) {
+                                alert('⚠️ Storage quota exceeded! File is too large.\n\nTry a smaller audio file (under 2-3MB recommended for best compatibility).');
+                            } else {
+                                alert('⚠️ Could not save audio file to storage.\n\nError: ' + storageError.message);
+                            }
                             return;
                         }
                         
@@ -2665,7 +2861,6 @@
                         if (customSoundName) customSoundName.textContent = `Custom: ${file.name}`;
                         
                         alert('✅ Custom sound uploaded successfully! File: ' + file.name);
-                        console.log('Custom sound upload complete');
                     } catch (error) {
                         console.error('Error loading custom sound:', error);
                         alert('⚠️ Error loading the audio file. Please try a different file.');
@@ -2677,7 +2872,6 @@
                     alert('⚠️ Error reading the file. Please try again.');
                 };
 
-                console.log('Starting to read file...');
                 reader.readAsDataURL(file);
             },
 
@@ -2686,6 +2880,7 @@
 
                 this.customSound = null;
                 this.customSoundName = null;
+                this.decodedCustomSoundBuffer = null; // Clear cached buffer
                 
                 localStorage.removeItem('customSound');
                 localStorage.removeItem('customSoundName');
@@ -2706,14 +2901,27 @@
             updateVolume(value) {
                 document.getElementById('volumeValue').textContent = value;
                 localStorage.setItem('volume', value);
+                // Debounce: save to cloud 1s after user stops sliding
+                clearTimeout(this._volumeSaveTimeout);
+                this._volumeSaveTimeout = setTimeout(() => this.triggerCloudSave(), 1000);
             },
 
             testSound() {
-                this.playAlarmSoundOnce();
+                // Ensure AudioContext exists and is running before test play
+                if (!this.persistentAudioContext || this.persistentAudioContext.state === 'closed') {
+                    this.persistentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.audioContextInitialized = true;
+                }
+                const ctx = this.persistentAudioContext;
+                if (ctx.state === 'suspended') {
+                    ctx.resume().then(() => this.playAlarmSoundOnce()).catch(() => this.playAlarmSoundOnce());
+                } else {
+                    this.playAlarmSoundOnce();
+                }
             },
 
             playAlarmSound() {
-                // Stop any existing alarm
+                // Stop any existing alarm fully before starting a new one
                 if (this.alarmAudio) {
                     this.alarmAudio.pause();
                     this.alarmAudio = null;
@@ -2721,6 +2929,14 @@
                 if (this.alarmInterval) {
                     clearInterval(this.alarmInterval);
                     this.alarmInterval = null;
+                }
+                // Force-stop any leftover nodes from a previous alarm
+                if (this.activeAlarmNodes && this.activeAlarmNodes.length > 0) {
+                    this.activeAlarmNodes.forEach(node => {
+                        try { node.stop(); } catch(e) {}
+                        try { node.disconnect(); } catch(e) {}
+                    });
+                    this.activeAlarmNodes = [];
                 }
 
                 // Show completion modal with continuous alarm
@@ -2770,68 +2986,24 @@
                 document.body.insertAdjacentHTML('beforeend', modalHTML);
 
                 // Create and play looped audio for continuous alarm
-                console.log('========== ALARM STARTED ==========');
-                console.log('Current time:', new Date().toLocaleTimeString());
                 
                 const soundType = localStorage.getItem('notificationSound') || 'bell';
                 const volume = (localStorage.getItem('volume') || 70) / 100;
                 
-                console.log('Sound type:', soundType, 'Volume:', volume);
                 
-                // Create audio element with loop
-                this.alarmAudio = new Audio();
-                this.alarmAudio.loop = true;
-                this.alarmAudio.volume = volume;
-                
-                // Set audio source
-                if (soundType === 'custom' && this.customSound) {
-                    console.log('Using custom sound');
-                    this.alarmAudio.src = this.customSound;
-                } else {
-                    console.log('Using default alarm sound - creating simple beep');
-                    // Use a simple, reliable beep sound
-                    // This creates a basic beep that works on all browsers
-                    const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    const oscillator = audioContext.createOscillator();
-                    const gainNode = audioContext.createGain();
-                    
-                    oscillator.connect(gainNode);
-                    gainNode.connect(audioContext.destination);
-                    
-                    oscillator.frequency.value = 800; // 800 Hz beep
-                    gainNode.gain.value = volume * 0.3;
-                    
-                    oscillator.start();
-                    oscillator.stop(audioContext.currentTime + 0.5);
-                    
-                    // For looping, we'll use the fallback interval method
-                    console.log('Using fallback interval method for default sound');
-                    this.fallbackAlarmPlayback();
-                    return; // Don't try to play the audio element
-                }
-                
-                // Play audio with promise handling
-                const playPromise = this.alarmAudio.play();
-                if (playPromise !== undefined) {
-                    playPromise
-                        .then(() => {
-                            console.log('✅ Alarm playing successfully (looped)');
-                        })
-                        .catch(error => {
-                            console.error('❌ Failed to play alarm:', error);
-                            // Fallback to interval-based playback
-                            this.fallbackAlarmPlayback();
-                        });
-                }
+                // Always use interval-based AudioContext playback for screen-off compatibility.
+                // new Audio() / HTMLAudioElement is paused by mobile browsers when the screen turns off.
+                // Web Audio API (AudioContext) continues to run even with screen off.
+                this.fallbackAlarmPlayback();
                 
                 // Show browser notification
                 this.showAlarmNotification();
                 
-                // Vibrate device if supported
+                // Vibrate device if supported — repeat every 3s to remain noticeable
                 if ('vibrate' in navigator) {
-                    // Vibrate pattern: vibrate 500ms, pause 200ms, repeat
-                    const vibratePattern = [500, 200, 500, 200, 500];
-                    navigator.vibrate(vibratePattern);
+                    const doVibrate = () => navigator.vibrate([500, 200, 500, 200, 500]);
+                    doVibrate();
+                    this.vibrateInterval = setInterval(doVibrate, 3000);
                 }
                 
                 // Request wake lock to prevent device sleep
@@ -2839,112 +3011,44 @@
                 
                 // Auto-stop alarm after 5 minutes (300000 milliseconds)
                 const stopTime = new Date(Date.now() + 300000);
-                console.log('Alarm will auto-stop at:', stopTime.toLocaleTimeString());
                 
                 this.alarmStopTimeout = setTimeout(() => {
-                    console.log('========== AUTO-STOP TRIGGERED ==========');
-                    console.log('5 minutes elapsed, stopping alarm at:', new Date().toLocaleTimeString());
                     this.stopAlarm();
                 }, 300000);
                 
-                console.log('Alarm will ring continuously for 5 minutes');
-                console.log('===================================');
             },
             
             fallbackAlarmPlayback() {
-                console.log('Using fallback alarm playback (interval-based)');
-                this.playAlarmSoundOnce();
-                this.alarmInterval = setInterval(() => {
-                    this.playAlarmSoundOnce();
-                }, 2000);
-            },
-            
-            createDefaultAlarmSound(volume) {
-                // Create a 2-second alarm beep using Web Audio API
-                const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                const sampleRate = audioContext.sampleRate;
-                const duration = 2; // 2 seconds
-                const numSamples = sampleRate * duration;
-                
-                const audioBuffer = audioContext.createBuffer(1, numSamples, sampleRate);
-                const channelData = audioBuffer.getChannelData(0);
-                
-                // Create alarm beep pattern: beep-beep-pause
-                for (let i = 0; i < numSamples; i++) {
-                    const time = i / sampleRate;
-                    const frequency = 800; // Hz
-                    
-                    // Create beep pattern
-                    let amplitude = 0;
-                    if (time < 0.2) {
-                        // First beep
-                        amplitude = Math.sin(2 * Math.PI * frequency * time) * 0.3;
-                    } else if (time > 0.3 && time < 0.5) {
-                        // Second beep
-                        amplitude = Math.sin(2 * Math.PI * frequency * time) * 0.3;
+                // Re-create AudioContext if it was suspended/closed by a previous stopAlarm()
+                if (!this.persistentAudioContext || this.persistentAudioContext.state === 'closed') {
+                    this.persistentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    this.audioContextInitialized = true;
+                }
+
+                // Reset active nodes list for this alarm session
+                this.activeAlarmNodes = [];
+
+                // Helper: resume context then play
+                const resumeAndPlay = async () => {
+                    const ctx = this.persistentAudioContext;
+                    if (ctx.state === 'suspended') {
+                        try { await ctx.resume(); } catch(e) {}
                     }
-                    
-                    channelData[i] = amplitude;
-                }
-                
-                // Convert buffer to WAV blob
-                const wavBlob = this.audioBufferToWav(audioBuffer);
-                const blobUrl = URL.createObjectURL(wavBlob);
-                this.alarmAudio.src = blobUrl;
-                
-                // Clean up blob URL after audio loads
-                this.alarmAudio.onloadeddata = () => {
-                    console.log('Default alarm sound loaded');
+                    this.playAlarmSoundOnce();
                 };
+                
+                // Play immediately
+                resumeAndPlay();
+                
+                // Repeat every 2200ms (melody max length is ~1.6s — no overlap)
+                this.alarmInterval = setInterval(() => {
+                    resumeAndPlay();
+                }, 2200);
             },
             
-            audioBufferToWav(buffer) {
-                const numChannels = buffer.numberOfChannels;
-                const sampleRate = buffer.sampleRate;
-                const format = 1; // PCM
-                const bitDepth = 16;
-                
-                const bytesPerSample = bitDepth / 8;
-                const blockAlign = numChannels * bytesPerSample;
-                
-                const data = buffer.getChannelData(0);
-                const dataLength = data.length * bytesPerSample;
-                
-                const arrayBuffer = new ArrayBuffer(44 + dataLength);
-                const view = new DataView(arrayBuffer);
-                
-                // WAV header
-                this.writeString(view, 0, 'RIFF');
-                view.setUint32(4, 36 + dataLength, true);
-                this.writeString(view, 8, 'WAVE');
-                this.writeString(view, 12, 'fmt ');
-                view.setUint32(16, 16, true);
-                view.setUint16(20, format, true);
-                view.setUint16(22, numChannels, true);
-                view.setUint32(24, sampleRate, true);
-                view.setUint32(28, sampleRate * blockAlign, true);
-                view.setUint16(32, blockAlign, true);
-                view.setUint16(34, bitDepth, true);
-                this.writeString(view, 36, 'data');
-                view.setUint32(40, dataLength, true);
-                
-                // Write audio data
-                const volume = 0.8;
-                let offset = 44;
-                for (let i = 0; i < data.length; i++) {
-                    const sample = Math.max(-1, Math.min(1, data[i]));
-                    view.setInt16(offset, sample < 0 ? sample * 0x8000 : sample * 0x7FFF, true);
-                    offset += 2;
-                }
-                
-                return new Blob([arrayBuffer], { type: 'audio/wav' });
-            },
+
             
-            writeString(view, offset, string) {
-                for (let i = 0; i < string.length; i++) {
-                    view.setUint8(offset + i, string.charCodeAt(i));
-                }
-            },
+            
             
             showAlarmNotification() {
                 // Request notification permission if not granted
@@ -2976,10 +3080,8 @@
                     navigator.wakeLock.request('screen')
                         .then(wakeLock => {
                             this.wakeLock = wakeLock;
-                            console.log('✅ Wake lock acquired - screen will stay on');
                         })
                         .catch(err => {
-                            console.log('⚠️ Wake lock failed:', err.message);
                         });
                 }
             },
@@ -2988,146 +3090,182 @@
                 const soundType = localStorage.getItem('notificationSound') || 'bell';
                 const volume = (localStorage.getItem('volume') || 70) / 100;
 
-                console.log('playAlarmSoundOnce called - soundType:', soundType, 'volume:', volume);
+                // Ensure we always use the persistent AudioContext (works even with screen off).
+                if (!this.persistentAudioContext) {
+                    this.persistentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                const audioContext = this.persistentAudioContext;
+
+                // Init active nodes tracker
+                if (!this.activeAlarmNodes) this.activeAlarmNodes = [];
 
                 if (soundType === 'custom' && this.customSound) {
-                    // Play custom sound
-                    console.log('Playing custom sound');
-                    try {
-                        const audio = new Audio(this.customSound);
-                        audio.volume = volume;
-                        audio.play().then(() => {
-                            console.log('Custom sound played successfully');
-                        }).catch(error => {
-                            console.error('Error playing custom sound:', error);
-                        });
-                    } catch (error) {
-                        console.error('Error creating audio:', error);
+                    const playFromBuffer = (audioBuffer) => {
+                        const source  = audioContext.createBufferSource();
+                        const gainNode = audioContext.createGain();
+                        source.buffer      = audioBuffer;
+                        gainNode.gain.value = volume;
+                        source.connect(gainNode);
+                        gainNode.connect(audioContext.destination);
+                        source.start();
+                        this.activeAlarmNodes.push(source);
+                    };
+                    if (this.decodedCustomSoundBuffer) {
+                        playFromBuffer(this.decodedCustomSoundBuffer);
+                    } else {
+                        try {
+                            const base64 = this.customSound.split(',')[1];
+                            if (!base64) { this._playDefaultAlarmTone(audioContext, volume); return; }
+                            const binaryString = atob(base64);
+                            const bytes = new Uint8Array(binaryString.length);
+                            for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+                            audioContext.decodeAudioData(bytes.buffer).then(audioBuffer => {
+                                this.decodedCustomSoundBuffer = audioBuffer;
+                                playFromBuffer(audioBuffer);
+                            }).catch(() => this._playDefaultAlarmTone(audioContext, volume));
+                        } catch (error) {
+                            this._playDefaultAlarmTone(audioContext, volume);
+                        }
                     }
                 } else {
-                    // Play VERY JOYFUL celebration sound - "Happy Birthday" style
-                    console.log('Playing default celebration sound');
-                    try {
-                        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                        
-                        // Resume if suspended
-                        if (audioContext.state === 'suspended') {
-                            audioContext.resume();
-                        }
-                        
-                        // JOYFUL MELODY: C-E-G-C (Major chord arpeggio) + High bells
-                        const notes = [
-                            // Main melody - Happy upward scale
-                            { freq: 523.25, time: 0, duration: 0.25, vol: 0.5 },    // C5
-                            { freq: 659.25, time: 0.25, duration: 0.25, vol: 0.5 }, // E5
-                            { freq: 783.99, time: 0.5, duration: 0.25, vol: 0.5 },  // G5
-                            { freq: 1046.50, time: 0.75, duration: 0.6, vol: 0.6 }, // C6 - HOLD
-                            
-                            // Harmony notes (play with final note)
-                            { freq: 523.25, time: 0.75, duration: 0.6, vol: 0.4 },  // C5
-                            { freq: 659.25, time: 0.75, duration: 0.6, vol: 0.4 },  // E5
-                            { freq: 783.99, time: 0.75, duration: 0.6, vol: 0.4 },  // G5
-                            
-                            // Celebration "ting" bells at the end
-                            { freq: 2093, time: 1.0, duration: 0.3, vol: 0.3 },     // C7
-                            { freq: 2349.32, time: 1.1, duration: 0.3, vol: 0.3 },  // D7
-                            { freq: 2637, time: 1.2, duration: 0.4, vol: 0.3 },     // E7
-                        ];
-                        
-                        notes.forEach(note => {
-                            const osc = audioContext.createOscillator();
-                            const gain = audioContext.createGain();
-                            
-                            osc.connect(gain);
-                            gain.connect(audioContext.destination);
-                            
-                            // Sine wave for pleasant tone
-                            osc.type = 'sine';
-                            osc.frequency.value = note.freq;
-                            
-                            const startTime = audioContext.currentTime + note.time;
-                            const endTime = startTime + note.duration;
-                            
-                            // Volume envelope
-                            gain.gain.setValueAtTime(0, startTime);
-                            gain.gain.linearRampToValueAtTime(volume * note.vol, startTime + 0.05);
-                            gain.gain.linearRampToValueAtTime(volume * note.vol * 0.8, endTime - 0.05);
-                            gain.gain.linearRampToValueAtTime(0.001, endTime);
-                            
-                            osc.start(startTime);
-                            osc.stop(endTime);
-                        });
-                        
-                    } catch (error) {
-                        console.error('Error playing alarm:', error);
-                        // Fallback: simple beep
-                        try {
-                            const ctx = new (window.AudioContext || window.webkitAudioContext)();
-                            const osc = ctx.createOscillator();
-                            const gain = ctx.createGain();
-                            osc.connect(gain);
-                            gain.connect(ctx.destination);
-                            osc.frequency.value = 800;
-                            gain.gain.value = volume * 0.5;
-                            osc.start();
-                            osc.stop(ctx.currentTime + 0.5);
-                        } catch (e) {
-                            console.error('Fallback sound failed:', e);
-                        }
+                    this._playDefaultAlarmTone(audioContext, volume);
+                }
+            },
+
+            _playDefaultAlarmTone(audioContext, volume) {
+                const soundType = localStorage.getItem('notificationSound') || 'bell';
+
+                if (!this.activeAlarmNodes) this.activeAlarmNodes = [];
+
+                // Shared helper: schedule a note with envelope and register node for cleanup
+                const note = (freq, start, dur, vol, type = 'sine') => {
+                    const osc  = audioContext.createOscillator();
+                    const gain = audioContext.createGain();
+                    osc.type = type;
+                    osc.frequency.value = freq;
+                    osc.connect(gain);
+                    gain.connect(audioContext.destination);
+                    const t0 = audioContext.currentTime + start;
+                    const t1 = t0 + dur;
+                    gain.gain.setValueAtTime(0, t0);
+                    gain.gain.linearRampToValueAtTime(volume * vol, t0 + 0.02);
+                    gain.gain.linearRampToValueAtTime(volume * vol * 0.7, t1 - 0.04);
+                    gain.gain.linearRampToValueAtTime(0.001, t1);
+                    osc.start(t0);
+                    osc.stop(t1);
+                    // Track this node so stopAlarm() can force-stop it immediately
+                    this.activeAlarmNodes.push(osc);
+                };
+
+                try {
+                    if (soundType === 'bell') {
+                        // Rich bell: C major arpeggio + chord hold + high tings
+                        note(523.25,  0,    0.25, 0.5);  // C5
+                        note(659.25,  0.25, 0.25, 0.5);  // E5
+                        note(783.99,  0.5,  0.25, 0.5);  // G5
+                        note(1046.50, 0.75, 0.6,  0.6);  // C6 hold
+                        note(523.25,  0.75, 0.6,  0.4);  // C5 harmony
+                        note(659.25,  0.75, 0.6,  0.4);  // E5 harmony
+                        note(2093,    1.0,  0.3,  0.3);  // C7 ting
+                        note(2637,    1.2,  0.4,  0.25); // E7 ting
+                    } else if (soundType === 'chime') {
+                        // Gentle wind-chime: descending pentatonic, softer + longer decay
+                        note(1318.5,  0,    0.5,  0.4);  // E6
+                        note(1174.66, 0.35, 0.5,  0.4);  // D6
+                        note(987.77,  0.7,  0.5,  0.4);  // B5
+                        note(880.0,   1.05, 0.55, 0.35); // A5
+                        note(659.25,  1.4,  0.6,  0.3);  // E5 fade
+                    } else if (soundType === 'beep') {
+                        // Sharp alert: three quick electronic beeps
+                        note(880, 0,   0.15, 0.7, 'square'); // beep 1
+                        note(880, 0.2, 0.15, 0.7, 'square'); // beep 2
+                        note(880, 0.4, 0.15, 0.7, 'square'); // beep 3
+                    } else if (soundType === 'ding') {
+                        // Single clean ding: pure tone with long tail
+                        note(1174.66, 0, 0.05, 0.8);  // D6 attack
+                        note(1174.66, 0, 1.6,  0.5);  // D6 ring out
+                        note(880.0,   0, 1.4,  0.2);  // A5 overtone
+                    } else {
+                        // Fallback: same as bell
+                        note(523.25, 0, 0.3, 0.6);
+                        note(659.25, 0.3, 0.3, 0.6);
+                        note(783.99, 0.6, 0.5, 0.6);
                     }
+                } catch (error) {
+                    try {
+                        const osc  = audioContext.createOscillator();
+                        const gain = audioContext.createGain();
+                        osc.connect(gain);
+                        gain.connect(audioContext.destination);
+                        osc.frequency.value = 800;
+                        gain.gain.value     = volume * 0.3;
+                        osc.start();
+                        osc.stop(audioContext.currentTime + 0.5);
+                    } catch (e) { /* silent */ }
                 }
             },
 
             stopAlarm() {
-                console.log('Stopping alarm...');
-                
-                // Stop the alarm audio
+                // 1. Stop the alarm interval FIRST — prevents any new sounds from being queued
+                if (this.alarmInterval) {
+                    clearInterval(this.alarmInterval);
+                    this.alarmInterval = null;
+                }
+
+                // 2. Force-stop every tracked oscillator/buffer node immediately
+                if (this.activeAlarmNodes && this.activeAlarmNodes.length > 0) {
+                    this.activeAlarmNodes.forEach(node => {
+                        try { node.stop(); } catch(e) { /* already stopped */ }
+                        try { node.disconnect(); } catch(e) {}
+                    });
+                    this.activeAlarmNodes = [];
+                }
+
+                // 3. Suspend the AudioContext — kills any nodes we may have missed
+                if (this.persistentAudioContext && this.persistentAudioContext.state !== 'closed') {
+                    this.persistentAudioContext.suspend().catch(() => {});
+                }
+
+                // 4. Stop HTMLAudioElement fallback if present
                 if (this.alarmAudio) {
                     this.alarmAudio.pause();
                     this.alarmAudio.currentTime = 0;
                     this.alarmAudio = null;
-                    console.log('Alarm audio stopped');
+                }
+
+                // 5. Stop repeating vibration
+                if (this.vibrateInterval) {
+                    clearInterval(this.vibrateInterval);
+                    this.vibrateInterval = null;
+                    if ('vibrate' in navigator) navigator.vibrate(0);
                 }
                 
-                // Stop the alarm interval (fallback)
-                if (this.alarmInterval) {
-                    clearInterval(this.alarmInterval);
-                    this.alarmInterval = null;
-                    console.log('Alarm interval stopped');
-                }
-                
-                // Stop the 5-minute auto-stop timeout
+                // 6. Cancel auto-stop timeout
                 if (this.alarmStopTimeout) {
                     clearTimeout(this.alarmStopTimeout);
                     this.alarmStopTimeout = null;
-                    console.log('Auto-stop timeout cleared');
                 }
                 
-                // Release wake lock
+                // 7. Release wake lock
                 if (this.wakeLock) {
-                    this.wakeLock.release()
-                        .then(() => {
-                            console.log('Wake lock released');
-                        })
-                        .catch(err => {
-                            console.log('Wake lock release error:', err);
-                        });
+                    this.wakeLock.release().catch(() => {});
                     this.wakeLock = null;
                 }
                 
-                // Remove the modal
+                // 8. Remove the modal
                 const modal = document.getElementById('alarmModal');
-                if (modal) {
-                    modal.remove();
-                    console.log('Alarm modal removed');
-                }
+                if (modal) modal.remove();
                 
-                console.log('✅ Alarm fully stopped');
+                // 9. Update UI
+                this.resetTimer();
+                this.updateTodayStats();
+                this.updateCalendar();
+                this.updateSessionsDisplay();
             },
 
             exportData() {
-                // For JSON backup export
-                this.exportJSONBackup();
+                // Export to Excel/CSV format (user-friendly for analysis)
+                this.exportToExcel();
             },
 
             exportJSONBackup() {
@@ -3194,11 +3332,14 @@
                 
                 // Process tasks
                 tasks.forEach(task => {
-                    const dateKey = task.date; // Already in YYYY-MM-DD format
+                    // task.date is in YYYY-MM-DD format string
+                    const dateKey = task.date;
                     
                     if (!dateMap[dateKey]) {
-                        const [year, month, day] = dateKey.split('-');
-                        const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                        // Parse date string properly to avoid timezone issues
+                        const [year, month, day] = dateKey.split('-').map(Number);
+                        const date = new Date(year, month - 1, day);
+                        
                         dateMap[dateKey] = {
                             date: dateKey,
                             displayDate: date.toLocaleDateString('en-US', { 
@@ -3225,6 +3366,14 @@
                 // Convert to CSV format with proper table structure
                 let csv = '\uFEFF'; // UTF-8 BOM for Excel
                 
+                // CSV cell escaper — wraps in quotes and escapes internal quotes
+                const csvCell = (val) => `"${String(val == null ? '' : val).replace(/"/g, '""')}"`;
+
+                // Add copyright header
+                csv += '© 2024 SSPATIL. All rights reserved.\n';
+                csv += 'StudyFlow - Study Time Report\n';
+                csv += `Generated: ${new Date().toLocaleString()}\n\n`;
+
                 // Main header
                 csv += 'Date,Total Time,Subject,Subject Time,Tasks/Topics\n';
                 
@@ -3244,10 +3393,8 @@
                     const subjects = Object.entries(dayData.subjects);
                     
                     if (subjects.length === 0) {
-                        // No subjects for this date
-                        csv += `"${dayData.displayDate}",${totalTimeStr},No data,0h 0m 0s,No tasks\n`;
+                        csv += `${csvCell(dayData.displayDate)},${totalTimeStr},No data,0h 0m 0s,No tasks\n`;
                     } else {
-                        // First row for this date includes date and total time
                         const [firstSubject, firstData] = subjects[0];
                         const firstHours = Math.floor(firstData.time / 3600);
                         const firstMinutes = Math.floor((firstData.time % 3600) / 60);
@@ -3255,9 +3402,8 @@
                         const firstTimeStr = `${firstHours}h ${firstMinutes}m ${firstSeconds}s`;
                         const firstTasks = firstData.tasks.length > 0 ? firstData.tasks.join('; ') : 'No tasks';
                         
-                        csv += `"${dayData.displayDate}",${totalTimeStr},${firstSubject},${firstTimeStr},"${firstTasks}"\n`;
+                        csv += `${csvCell(dayData.displayDate)},${totalTimeStr},${csvCell(firstSubject)},${firstTimeStr},${csvCell(firstTasks)}\n`;
                         
-                        // Remaining subjects (date and total time columns are empty)
                         for (let i = 1; i < subjects.length; i++) {
                             const [subject, data] = subjects[i];
                             const hours = Math.floor(data.time / 3600);
@@ -3266,7 +3412,7 @@
                             const timeStr = `${hours}h ${minutes}m ${seconds}s`;
                             const tasksStr = data.tasks.length > 0 ? data.tasks.join('; ') : 'No tasks';
                             
-                            csv += `,,${subject},${timeStr},"${tasksStr}"\n`;
+                            csv += `,,${csvCell(subject)},${timeStr},${csvCell(tasksStr)}\n`;
                         }
                     }
                     
@@ -3286,10 +3432,51 @@
                 alert('✅ Excel file exported successfully!\n\nOpen in Excel or Google Sheets for best viewing.');
             },
 
+            // ── Cloud sync helper ─────────────────────────────────────────
+            // Called after every data-mutating action so changes reach Firebase
+            // immediately, not just on the 30-second interval.
+            triggerCloudSave() {
+                if (typeof window.cloudSave === 'function') {
+                    window.cloudSave();
+                }
+            },
+
             clearAllData() {
                 if (!confirm('⚠️ Clear ALL data? This cannot be undone!')) return;
                 if (!confirm('⚠️ Are you ABSOLUTELY sure? This will delete all sessions, tasks, and subjects!')) return;
+
+                // Stop everything — including active alarm audio nodes
+                if (this.activeAlarmNodes && this.activeAlarmNodes.length > 0) {
+                    this.activeAlarmNodes.forEach(node => {
+                        try { node.stop(); } catch(e) {}
+                        try { node.disconnect(); } catch(e) {}
+                    });
+                    this.activeAlarmNodes = [];
+                }
+                if (this.persistentAudioContext && this.persistentAudioContext.state !== 'closed') {
+                    this.persistentAudioContext.suspend().catch(() => {});
+                }
+                clearInterval(this.timer);
+                this.timer = null;
+                if (this.alarmInterval)    { clearInterval(this.alarmInterval);    this.alarmInterval    = null; }
+                if (this.alarmStopTimeout) { clearTimeout(this.alarmStopTimeout);  this.alarmStopTimeout = null; }
+                if (this.vibrateInterval)  { clearInterval(this.vibrateInterval);  this.vibrateInterval  = null; if ('vibrate' in navigator) navigator.vibrate(0); }
+                if (this.wakeLock)         { this.wakeLock.release().catch(() => {}); this.wakeLock = null; }
+                const modal = document.getElementById('alarmModal');
+                if (modal) modal.remove();
                 
+                // Reset all in-memory state
+                this.selectedTaskStatus = 'completed';
+                this.editTaskStatus = 'completed';
+                this.editingTaskId = null;
+                this.selectedTaskDate = null;
+                this.isRunning = false;
+                this.isPaused = false;
+                this.currentSubject = null;
+                this.currentDuration = 0;
+                this.elapsedTime = 0;
+                this.startTime = null;
+
                 localStorage.clear();
                 
                 const defaultSubjects = ['Mathematics', 'Physics', 'Chemistry', 'English', 'History'];
@@ -3302,6 +3489,13 @@
                 this.loadSettings();
                 this.loadTasks();
                 this.initializeTaskDate();
+                this.resetTimer();
+                
+                // Re-register audio interaction listener so next alarm works
+                this.enableAudioOnInteraction();
+                
+                // Push cleared state to Firebase immediately — prevents cloud restoring old data on next load
+                this.triggerCloudSave();
                 
                 alert('✅ All data cleared! 5 default subjects have been added.');
             }
@@ -3316,25 +3510,23 @@
             app.init();
         });
         
-        // Handle visibility change to keep alarm playing in background
+        // Handle visibility change - resume AudioContext when page becomes visible again
+        // Only resume if an alarm is actively ringing (alarmInterval is set)
         document.addEventListener('visibilitychange', () => {
-            if (app.alarmAudio && !app.alarmAudio.paused) {
-                if (document.hidden) {
-                    console.log('Page hidden - alarm should continue playing');
-                    // Try to keep playing
-                    app.alarmAudio.play().catch(err => {
-                        console.log('Could not resume alarm:', err);
+            if (!document.hidden && app.alarmInterval && app.persistentAudioContext) {
+                if (app.persistentAudioContext.state === 'suspended') {
+                    app.persistentAudioContext.resume().catch(err => {
+                        console.warn('Could not resume AudioContext on visibility restore:', err);
                     });
-                } else {
-                    console.log('Page visible again');
                 }
             }
+            // Note: we do NOT stop/pause anything when page is hidden.
         });
     </script>
 
 <script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-app.js";
-import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/12.9.0/firebase-firestore.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+import { getFirestore, doc, setDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
 const firebaseConfig = {
 apiKey: "AIzaSyBZPdHr9xDvNdPt1jwZaMy3jvxxWFFrRGo",
@@ -3345,27 +3537,76 @@ messagingSenderId: "824246313062",
 appId: "1:824246313062:web:18295b9a30c755f9f6cda7"
 };
 
-const app = initializeApp(firebaseConfig);
-const db = getFirestore(app);
+const firebaseApp = initializeApp(firebaseConfig);
+const db = getFirestore(firebaseApp);
 const docRef = doc(db, "studyflow", "saurabh");
 
+function setSyncStatus(ok, label) {
+  const dot   = document.getElementById('syncDot');
+  const lbl   = document.getElementById('syncLabel');
+  if (!dot || !lbl) return;
+  dot.style.background = ok ? '#10b981' : '#ef4444';
+  lbl.textContent = label;
+}
+
 async function cloudSave(){
-  await setDoc(docRef, { data: JSON.stringify(localStorage) });
+  try {
+    const snapshot = {};
+    // Exclude customSound (large base64) — it can exceed Firestore's 1MB document limit.
+    // Custom sound stays in localStorage on this device only.
+    const excludeKeys = new Set(['customSound']);
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (!excludeKeys.has(key)) {
+        snapshot[key] = localStorage.getItem(key);
+      }
+    }
+    await setDoc(docRef, { data: JSON.stringify(snapshot) });
+    const now = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    setSyncStatus(true, `Cloud synced at ${now}`);
+  } catch (err) {
+    setSyncStatus(false, 'Cloud sync failed — data saved locally');
+    console.warn('Cloud save failed (data is safe locally):', err.message);
+  }
 }
 
 async function cloudLoad(){
- const snap = await getDoc(docRef);
- if(snap.exists()){
-   const obj = JSON.parse(snap.data().data);
-   Object.keys(obj).forEach(k=>localStorage.setItem(k,obj[k]));
-   //location.reload();
- }
+  try {
+    const snap = await getDoc(docRef);
+    if (snap.exists()) {
+      const obj = JSON.parse(snap.data().data);
+      Object.keys(obj).forEach(k => localStorage.setItem(k, obj[k]));
+      // Refresh UI after cloud data loaded so stale local data is replaced.
+      // Use a small delay to ensure app.init() has completed (app.init fires on 'load' event).
+      const refreshUI = () => {
+        if (window.app && typeof window.app.loadSubjects === 'function') {
+          window.app.loadSubjects();
+          window.app.updateTodayStats();
+          window.app.updateCalendar();
+          window.app.loadTasks();
+          window.app.loadSettings();
+        }
+      };
+      if (document.readyState === 'complete') {
+        refreshUI();
+      } else {
+        window.addEventListener('load', refreshUI);
+      }
+    }
+  } catch (err) {
+    console.warn('Cloud load failed (using local data):', err.message);
+  }
 }
 
 window.cloudSave = cloudSave;
 window.cloudLoad = cloudLoad;
 cloudLoad();
 setInterval(cloudSave, 30000); // autosync every 30s
+
+// Attempt a final save when user closes or refreshes the tab
+window.addEventListener('beforeunload', () => {
+  cloudSave();
+});
 </script>
 
 </body>
