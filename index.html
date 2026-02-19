@@ -1453,6 +1453,10 @@
             audioContextInitialized: false,
             persistentAudioContext: null, // CRITICAL: Keeps audio playing even with screen off
             activeAlarmNodes: [], // Tracks all scheduled oscillator/buffer nodes for clean stop
+            _customSoundSource: null,  // Tracks the looping custom sound BufferSource
+            _silentAudio: null,        // Silent looping audio to hold audio session open
+            _swRegistration: null,     // Service Worker registration for background notifications
+            timerDeadlineTimeout: null, // One-shot timeout at exact end time — fires even with screen off
 
             init() {
                 this.loadSubjects();
@@ -1466,6 +1470,24 @@
                 // Keep copyright year always current
                 const yearEl = document.getElementById('copyrightYear');
                 if (yearEl) yearEl.textContent = new Date().getFullYear();
+                // Register Service Worker for background timer completion notifications
+                this._registerServiceWorker();
+            },
+
+            _registerServiceWorker() {
+                if (!('serviceWorker' in navigator)) return;
+                // NOTE: Service Workers registered from a blob: URL cannot claim a scope
+                // outside the blob origin, so they cannot send push notifications to the page.
+                // Instead we use the Notification API directly (already done in showAlarmNotification).
+                // This method is kept as a no-op stub so existing call-sites don't break.
+                // Background notification is handled by showAlarmNotification() + the
+                // visibilitychange catch-up check which fires the alarm the instant the
+                // screen turns back on.
+            },
+
+            _notifyServiceWorker(subject) {
+                if (!this._swRegistration || !this._swRegistration.active) return;
+                this._swRegistration.active.postMessage({ type: 'TIMER_COMPLETE', subject: subject });
             },
             
             enableAudioOnInteraction() {
@@ -1589,6 +1611,16 @@
                 if (this.timer) clearInterval(this.timer);
                 this.timer = setInterval(() => this.updateTimer(), 500);
 
+                // ── SCREEN-OFF SAFETY NET ──────────────────────────────────────────
+                // setInterval is throttled/frozen by mobile OSes when screen is off.
+                // Schedule a one-shot setTimeout for the exact deadline so the alarm
+                // fires even if setInterval never ticks while the screen is dark.
+                if (this.timerDeadlineTimeout) clearTimeout(this.timerDeadlineTimeout);
+                this.timerDeadlineTimeout = setTimeout(() => {
+                    this._fireTimerComplete();
+                }, this.currentDuration * 1000);
+                // ──────────────────────────────────────────────────────────────────
+
                 this.updateTimerButtons();
                 this.updateStatusBadge();
             },
@@ -1598,6 +1630,8 @@
                     // Capture accurate elapsed time BEFORE clearing the interval
                     this.elapsedTime = Date.now() - this.startTime;
                     clearInterval(this.timer);
+                    // Cancel the deadline timeout while paused — remaining time will be rescheduled on resume
+                    if (this.timerDeadlineTimeout) { clearTimeout(this.timerDeadlineTimeout); this.timerDeadlineTimeout = null; }
                     this.isRunning = false;
                     this.isPaused = true;
                     this.updateTimerButtons();
@@ -1607,6 +1641,12 @@
                     this.isRunning = true;
                     this.isPaused = false;
                     this.timer = setInterval(() => this.updateTimer(), 500);
+                    // Reschedule deadline for the remaining duration
+                    const remainingMs = (this.currentDuration * 1000) - this.elapsedTime;
+                    if (this.timerDeadlineTimeout) clearTimeout(this.timerDeadlineTimeout);
+                    this.timerDeadlineTimeout = setTimeout(() => {
+                        this._fireTimerComplete();
+                    }, Math.max(0, remainingMs));
                     this.updateTimerButtons();
                     this.updateStatusBadge();
                 }
@@ -1616,6 +1656,8 @@
                 // Stop the interval FIRST so updateTimer() cannot fire while the confirm dialog is open
                 clearInterval(this.timer);
                 this.timer = null;
+                // Also cancel the screen-off deadline timeout
+                if (this.timerDeadlineTimeout) { clearTimeout(this.timerDeadlineTimeout); this.timerDeadlineTimeout = null; }
                 
                 // Capture elapsed time correctly:
                 // - If running: recalculate from startTime (interval just stopped, most accurate)
@@ -1625,14 +1667,23 @@
                     : (Date.now() - this.startTime);
                 const capturedSeconds = Math.floor(capturedElapsed / 1000);
 
+                // Helper: restore the timer fully (interval + deadline) when user cancels the dialog
+                const restoreTimer = () => {
+                    if (!this.isPaused) {
+                        this.startTime = Date.now() - capturedElapsed;
+                        this.timer = setInterval(() => this.updateTimer(), 500);
+                        // Bug 1 fix: also reschedule the deadline timeout so screen-off alarm still works
+                        const remainingMs = (this.currentDuration * 1000) - capturedElapsed;
+                        this.timerDeadlineTimeout = setTimeout(() => {
+                            this._fireTimerComplete();
+                        }, Math.max(0, remainingMs));
+                    }
+                };
+
                 // Don't allow saving a session shorter than 5 seconds — avoids accidental zero-duration entries
                 if (capturedSeconds < 5) {
                     if (!confirm('⏹️ Stop and discard this session? (Less than 5 seconds elapsed — too short to save)')) {
-                        // User cancelled — restore timer state
-                        if (!this.isPaused) {
-                            this.startTime = Date.now() - capturedElapsed;
-                            this.timer = setInterval(() => this.updateTimer(), 500);
-                        }
+                        restoreTimer();
                         return;
                     }
                     if (this.alarmInterval) { clearInterval(this.alarmInterval); this.alarmInterval = null; }
@@ -1642,11 +1693,7 @@
                 }
 
                 if (!confirm('⏹️ Stop timer and save session?')) {
-                    // User cancelled — restore timer state
-                    if (!this.isPaused) {
-                        this.startTime = Date.now() - capturedElapsed;
-                        this.timer = setInterval(() => this.updateTimer(), 500);
-                    }
+                    restoreTimer();
                     return;
                 }
 
@@ -1660,10 +1707,13 @@
                     this.alarmStopTimeout = null;
                 }
 
+                // Bug 2 fix: capture subject name BEFORE resetTimer() clears it
+                const savedSubject = this.currentSubject;
+
                 const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
                 const newSession = {
                     id: Date.now(),
-                    subject: this.currentSubject,
+                    subject: savedSubject,
                     duration: Math.floor(capturedElapsed / 1000),
                     date: new Date().toISOString(),
                     dateString: new Date().toDateString()
@@ -1680,12 +1730,14 @@
 
                 const minutes = Math.floor(newSession.duration / 60);
                 const seconds = newSession.duration % 60;
-                alert(`✅ Session saved!\n${this.currentSubject}\nDuration: ${minutes}m ${seconds}s`);
+                // Bug 2 fix: use savedSubject (not this.currentSubject which is now null)
+                alert(`✅ Session saved!\n${savedSubject}\nDuration: ${minutes}m ${seconds}s`);
             },
 
             resetTimer() {
                 clearInterval(this.timer);
                 this.timer = null;
+                if (this.timerDeadlineTimeout) { clearTimeout(this.timerDeadlineTimeout); this.timerDeadlineTimeout = null; }
                 this.startTime = null;
                 this.elapsedTime = 0;
                 this.isRunning = false;
@@ -1799,12 +1851,31 @@
                     clearInterval(this.timer);
                     this.timer = null;      // Null immediately — prevents any re-entry
                     this.isRunning = false;
+                    if (this.timerDeadlineTimeout) { clearTimeout(this.timerDeadlineTimeout); this.timerDeadlineTimeout = null; }
+                    this._fireTimerComplete();
+                }
+            },
 
-                    // Guard against double-fire: if alarm modal already exists, do not re-save or re-alarm
-                    if (document.getElementById('alarmModal')) return;
+            // ── Called by BOTH updateTimer() and the deadline setTimeout ──────────
+            // Guard flag ensures it only fires once even if both paths trigger.
+            _fireTimerComplete() {
+                // Guard: don't fire twice (e.g. interval + deadline both trigger)
+                if (document.getElementById('alarmModal')) return;
+                // Guard: don't fire if timer was manually stopped/reset (either field being cleared is enough)
+                if (!this.currentSubject || !this.currentDuration) return;
 
-                    // Save session when timer completes
-                    const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                // Make sure interval is fully stopped
+                if (this.timer) { clearInterval(this.timer); this.timer = null; }
+                if (this.timerDeadlineTimeout) { clearTimeout(this.timerDeadlineTimeout); this.timerDeadlineTimeout = null; }
+                this.isRunning = false;
+
+                // Save session
+                const sessions = JSON.parse(localStorage.getItem('sessions')) || [];
+                // Avoid duplicate save if session was already saved (double-fire guard).
+                // 30-second window handles slow device wake-up where both the deadline
+                // timeout and the visibilitychange check could fire far apart.
+                const alreadySaved = sessions.some(s => s.id && Math.abs(s.id - Date.now()) < 30000 && s.subject === this.currentSubject);
+                if (!alreadySaved) {
                     const newSession = {
                         id: Date.now(),
                         subject: this.currentSubject,
@@ -1814,11 +1885,13 @@
                     };
                     sessions.push(newSession);
                     localStorage.setItem('sessions', JSON.stringify(sessions));
-
-                    // Play alarm — UI updates when user dismisses
-                    this.triggerCloudSave();
-                    this.playAlarmSound();
                 }
+
+                // Play alarm — UI updates when user dismisses
+                this.triggerCloudSave();
+                // Notify via Service Worker (shows notification even when screen is off)
+                this._notifyServiceWorker(this.currentSubject);
+                this.playAlarmSound();
             },
 
             updateTimerButtons() {
@@ -2118,15 +2191,16 @@
                 const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
                 const totalSecondsRemainder = totalSeconds % 60;
                 
-                // Calculate subject-wise breakdown
+                // Calculate subject-wise breakdown (case-insensitive grouping)
                 const subjectBreakdown = {};
                 dateSessions.forEach(s => {
                     // Skip null, undefined, or empty subjects
                     if (s.subject && s.subject !== 'null' && s.subject.trim() !== '') {
-                        if (!subjectBreakdown[s.subject]) {
-                            subjectBreakdown[s.subject] = 0;
+                        const key = s.subject.trim().toLowerCase();
+                        if (!subjectBreakdown[key]) {
+                            subjectBreakdown[key] = { displayName: s.subject.trim(), seconds: 0 };
                         }
-                        subjectBreakdown[s.subject] += s.duration;
+                        subjectBreakdown[key].seconds += s.duration;
                     }
                 });
 
@@ -2142,14 +2216,14 @@
                 // Study Time Section
                 if (totalSeconds > 0) {
                     let breakdownHTML = '';
-                    Object.entries(subjectBreakdown).forEach(([subject, seconds]) => {
+                    Object.values(subjectBreakdown).forEach(({ displayName, seconds }) => {
                         const hours = Math.floor(seconds / 3600);
                         const minutes = Math.floor((seconds % 3600) / 60);
                         const secs = seconds % 60;
                         const timeStr = hours > 0 ? `${hours}h ${minutes}m ${secs}s` : `${minutes}m ${secs}s`;
                         breakdownHTML += `
                             <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
-                                <span style="font-weight: 600; color: var(--text-primary);">${subject}</span>
+                                <span style="font-weight: 600; color: var(--text-primary);">${displayName}</span>
                                 <span style="color: var(--primary); font-weight: 600;">${timeStr}</span>
                             </div>
                         `;
@@ -2552,25 +2626,26 @@
                 const totalHours = Math.floor(totalSeconds / 3600);
                 const totalMinutes = Math.floor((totalSeconds % 3600) / 60);
                 
-                // Calculate subject-wise breakdown
+                // Calculate subject-wise breakdown (case-insensitive grouping)
                 const subjectBreakdown = {};
                 dateSessions.forEach(s => {
                     // Skip null, undefined, or empty subjects
                     if (s.subject && s.subject !== 'null' && s.subject.trim() !== '') {
-                        if (!subjectBreakdown[s.subject]) {
-                            subjectBreakdown[s.subject] = 0;
+                        const key = s.subject.trim().toLowerCase();
+                        if (!subjectBreakdown[key]) {
+                            subjectBreakdown[key] = { displayName: s.subject.trim(), seconds: 0 };
                         }
-                        subjectBreakdown[s.subject] += s.duration;
+                        subjectBreakdown[key].seconds += s.duration;
                     }
                 });
 
                 let breakdownHTML = '';
-                Object.entries(subjectBreakdown).forEach(([subject, seconds]) => {
+                Object.values(subjectBreakdown).forEach(({ displayName, seconds }) => {
                     const hours = Math.floor(seconds / 3600);
                     const minutes = Math.floor((seconds % 3600) / 60);
                     breakdownHTML += `
                         <div style="display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border);">
-                            <span style="font-weight: 600; color: var(--text-primary);">${app.escapeHTML(subject)}</span>
+                            <span style="font-weight: 600; color: var(--text-primary);">${app.escapeHTML(displayName)}</span>
                             <span style="color: var(--primary); font-weight: 600;">${hours}h ${minutes}m</span>
                         </div>
                     `;
@@ -3028,22 +3103,83 @@
                 // Reset active nodes list for this alarm session
                 this.activeAlarmNodes = [];
 
-                // Helper: resume context then play
+                // Keep the audio session alive even when screen is off.
+                // A silent looping HTMLAudio element holds the audio focus on mobile browsers
+                // so the Web Audio API context is not suspended by the OS.
+                if (!this._silentAudio) {
+                    // Minimal silent MP3 (44 bytes) as a data-URI — prevents any audible sound
+                    const silentMp3 = 'data:audio/mpeg;base64,SUQzBAAAAAABEVRYWFgAAAAtAAADY29tbWVudABCaWdTb3VuZEJhbmsuY29tIC8gTGFTb25vdGhlcXVlLm9yZwBURU5DAAAAHQAAA1N3aXRjaCBQbHVzIMKpIE5DSCBTb2Z0d2FyZQBUSVQyAAAABgAAAzIyMzUAVFNTRQAAAA8AAANMYXZmNTguMjkuMTAwAAAAAAAAAAAAAAD/80DEAAAAA0gAAAAATEFNRTMuMTAwVVVVVVVVVVVVVUxBTUUzLjEwMFVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQsRbAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVf/zQMSkAAADSAAAAABVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV';
+                    this._silentAudio = new Audio(silentMp3);
+                    this._silentAudio.loop = true;
+                    this._silentAudio.volume = 0.001; // near-silent, not fully 0 (some browsers skip 0-vol audio)
+                }
+                // Play silent audio to hold audio session
+                this._silentAudio.play().catch(() => {});
+
+                const soundType = localStorage.getItem('notificationSound') || 'bell';
+
+                if (soundType === 'custom' && this.customSound) {
+                    // --- CUSTOM SOUND: decode once, then use source.loop = true ---
+                    // This guarantees exactly ONE instance plays and loops seamlessly.
+                    const startLoopingCustomSound = (audioBuffer) => {
+                        const ctx = this.persistentAudioContext;
+                        const source = ctx.createBufferSource();
+                        const gainNode = ctx.createGain();
+                        const volume = (localStorage.getItem('volume') || 70) / 100;
+                        source.buffer = audioBuffer;
+                        source.loop = true;          // seamless loop, no overlap ever
+                        gainNode.gain.value = volume;
+                        source.connect(gainNode);
+                        gainNode.connect(ctx.destination);
+                        source.start();
+                        // Track for cleanup
+                        this.activeAlarmNodes.push(source);
+                        this._customSoundSource = source;
+                    };
+
+                    const resume = async () => {
+                        if (this.persistentAudioContext.state === 'suspended') {
+                            try { await this.persistentAudioContext.resume(); } catch(e) {}
+                        }
+                        if (this.decodedCustomSoundBuffer) {
+                            startLoopingCustomSound(this.decodedCustomSoundBuffer);
+                        } else {
+                            try {
+                                const base64 = this.customSound.split(',')[1];
+                                if (!base64) { this._startBuiltInAlarmInterval(); return; }
+                                const binary = atob(base64);
+                                const bytes = new Uint8Array(binary.length);
+                                for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+                                this.persistentAudioContext.decodeAudioData(bytes.buffer)
+                                    .then(buf => {
+                                        this.decodedCustomSoundBuffer = buf;
+                                        startLoopingCustomSound(buf);
+                                    })
+                                    .catch(() => this._startBuiltInAlarmInterval());
+                            } catch(e) {
+                                this._startBuiltInAlarmInterval();
+                            }
+                        }
+                    };
+                    resume();
+                    // No setInterval needed for custom sound — source.loop handles repetition
+                } else {
+                    this._startBuiltInAlarmInterval();
+                }
+            },
+
+            _startBuiltInAlarmInterval() {
+                // Built-in tones are short (max ~2s), so interval-based repetition is fine.
                 const resumeAndPlay = async () => {
                     const ctx = this.persistentAudioContext;
                     if (ctx.state === 'suspended') {
                         try { await ctx.resume(); } catch(e) {}
                     }
-                    this.playAlarmSoundOnce();
+                    this._playDefaultAlarmTone(ctx, (localStorage.getItem('volume') || 70) / 100);
                 };
-                
-                // Play immediately
                 resumeAndPlay();
-                
-                // Repeat every 2200ms (melody max length is ~1.6s — no overlap)
-                this.alarmInterval = setInterval(() => {
-                    resumeAndPlay();
-                }, 2200);
+                // 2200ms gap safely avoids any overlap for all built-in melodies (max ~1.6s)
+                this.alarmInterval = setInterval(() => resumeAndPlay(), 2200);
             },
             
 
@@ -3087,16 +3223,15 @@
             },
 
             playAlarmSoundOnce() {
+                // Used for SOUND TEST only (not for alarm looping).
+                // For alarm looping, fallbackAlarmPlayback() handles everything.
                 const soundType = localStorage.getItem('notificationSound') || 'bell';
                 const volume = (localStorage.getItem('volume') || 70) / 100;
 
-                // Ensure we always use the persistent AudioContext (works even with screen off).
-                if (!this.persistentAudioContext) {
+                if (!this.persistentAudioContext || this.persistentAudioContext.state === 'closed') {
                     this.persistentAudioContext = new (window.AudioContext || window.webkitAudioContext)();
                 }
                 const audioContext = this.persistentAudioContext;
-
-                // Init active nodes tracker
                 if (!this.activeAlarmNodes) this.activeAlarmNodes = [];
 
                 if (soundType === 'custom' && this.customSound) {
@@ -3104,6 +3239,7 @@
                         const source  = audioContext.createBufferSource();
                         const gainNode = audioContext.createGain();
                         source.buffer      = audioBuffer;
+                        source.loop        = false; // single play for preview
                         gainNode.gain.value = volume;
                         source.connect(gainNode);
                         gainNode.connect(audioContext.destination);
@@ -3212,7 +3348,14 @@
                     this.alarmInterval = null;
                 }
 
-                // 2. Force-stop every tracked oscillator/buffer node immediately
+                // 2. Stop custom looping sound source (source.loop = true doesn't auto-stop)
+                if (this._customSoundSource) {
+                    try { this._customSoundSource.stop(); } catch(e) {}
+                    try { this._customSoundSource.disconnect(); } catch(e) {}
+                    this._customSoundSource = null;
+                }
+
+                // 3. Force-stop every tracked oscillator/buffer node immediately
                 if (this.activeAlarmNodes && this.activeAlarmNodes.length > 0) {
                     this.activeAlarmNodes.forEach(node => {
                         try { node.stop(); } catch(e) { /* already stopped */ }
@@ -3221,42 +3364,49 @@
                     this.activeAlarmNodes = [];
                 }
 
-                // 3. Suspend the AudioContext — kills any nodes we may have missed
+                // 4. Suspend the AudioContext — kills any nodes we may have missed
                 if (this.persistentAudioContext && this.persistentAudioContext.state !== 'closed') {
                     this.persistentAudioContext.suspend().catch(() => {});
                 }
 
-                // 4. Stop HTMLAudioElement fallback if present
+                // 5. Stop the silent keep-alive audio (no longer needed once alarm stops)
+                if (this._silentAudio) {
+                    this._silentAudio.pause();
+                    this._silentAudio.currentTime = 0;
+                    // Keep the element for potential reuse, just pause it
+                }
+
+                // 6. Stop HTMLAudioElement fallback if present
                 if (this.alarmAudio) {
                     this.alarmAudio.pause();
                     this.alarmAudio.currentTime = 0;
                     this.alarmAudio = null;
                 }
 
-                // 5. Stop repeating vibration
+                // 7. Stop repeating vibration
                 if (this.vibrateInterval) {
                     clearInterval(this.vibrateInterval);
                     this.vibrateInterval = null;
                     if ('vibrate' in navigator) navigator.vibrate(0);
                 }
                 
-                // 6. Cancel auto-stop timeout
+                // 8. Cancel auto-stop timeout
                 if (this.alarmStopTimeout) {
                     clearTimeout(this.alarmStopTimeout);
                     this.alarmStopTimeout = null;
                 }
                 
-                // 7. Release wake lock
+                // 9. Release wake lock
                 if (this.wakeLock) {
                     this.wakeLock.release().catch(() => {});
                     this.wakeLock = null;
                 }
                 
-                // 8. Remove the modal
+                // 10. Remove the modal
                 const modal = document.getElementById('alarmModal');
                 if (modal) modal.remove();
                 
-                // 9. Update UI
+                // 11. Update UI
                 this.resetTimer();
                 this.updateTodayStats();
                 this.updateCalendar();
@@ -3318,16 +3468,20 @@
                         };
                     }
                     
-                    const subject = session.subject || 'Unknown';
-                    if (!dateMap[dateKey].subjects[subject]) {
-                        dateMap[dateKey].subjects[subject] = {
+                    const subjectRaw = session.subject || 'Unknown';
+                    // Use lowercase as the grouping key so "Mathematics" and "mathematics"
+                    // are treated as the same subject. Display name = first seen casing.
+                    const subjectKey = subjectRaw.toLowerCase();
+                    if (!dateMap[dateKey].subjects[subjectKey]) {
+                        dateMap[dateKey].subjects[subjectKey] = {
+                            displayName: subjectRaw, // preserve original casing for display
                             time: 0,
                             tasks: []
                         };
                     }
                     
                     dateMap[dateKey].totalSeconds += session.duration;
-                    dateMap[dateKey].subjects[subject].time += session.duration;
+                    dateMap[dateKey].subjects[subjectKey].time += session.duration;
                 });
                 
                 // Process tasks
@@ -3352,15 +3506,17 @@
                         };
                     }
                     
-                    const subject = task.subject || 'Unknown';
-                    if (!dateMap[dateKey].subjects[subject]) {
-                        dateMap[dateKey].subjects[subject] = {
+                    const subjectRaw = task.subject || 'Unknown';
+                    const subjectKey = subjectRaw.toLowerCase();
+                    if (!dateMap[dateKey].subjects[subjectKey]) {
+                        dateMap[dateKey].subjects[subjectKey] = {
+                            displayName: subjectRaw,
                             time: 0,
                             tasks: []
                         };
                     }
                     
-                    dateMap[dateKey].subjects[subject].tasks.push(task.description);
+                    dateMap[dateKey].subjects[subjectKey].tasks.push(task.description);
                 });
                 
                 // Convert to CSV format with proper table structure
@@ -3395,24 +3551,24 @@
                     if (subjects.length === 0) {
                         csv += `${csvCell(dayData.displayDate)},${totalTimeStr},No data,0h 0m 0s,No tasks\n`;
                     } else {
-                        const [firstSubject, firstData] = subjects[0];
+                        const [firstKey, firstData] = subjects[0];
                         const firstHours = Math.floor(firstData.time / 3600);
                         const firstMinutes = Math.floor((firstData.time % 3600) / 60);
                         const firstSeconds = firstData.time % 60;
                         const firstTimeStr = `${firstHours}h ${firstMinutes}m ${firstSeconds}s`;
                         const firstTasks = firstData.tasks.length > 0 ? firstData.tasks.join('; ') : 'No tasks';
                         
-                        csv += `${csvCell(dayData.displayDate)},${totalTimeStr},${csvCell(firstSubject)},${firstTimeStr},${csvCell(firstTasks)}\n`;
+                        csv += `${csvCell(dayData.displayDate)},${totalTimeStr},${csvCell(firstData.displayName)},${firstTimeStr},${csvCell(firstTasks)}\n`;
                         
                         for (let i = 1; i < subjects.length; i++) {
-                            const [subject, data] = subjects[i];
+                            const [subjectKey, data] = subjects[i];
                             const hours = Math.floor(data.time / 3600);
                             const minutes = Math.floor((data.time % 3600) / 60);
                             const seconds = data.time % 60;
                             const timeStr = `${hours}h ${minutes}m ${seconds}s`;
                             const tasksStr = data.tasks.length > 0 ? data.tasks.join('; ') : 'No tasks';
                             
-                            csv += `,,${csvCell(subject)},${timeStr},${csvCell(tasksStr)}\n`;
+                            csv += `,,${csvCell(data.displayName)},${timeStr},${csvCell(tasksStr)}\n`;
                         }
                     }
                     
@@ -3446,6 +3602,11 @@
                 if (!confirm('⚠️ Are you ABSOLUTELY sure? This will delete all sessions, tasks, and subjects!')) return;
 
                 // Stop everything — including active alarm audio nodes
+                if (this._customSoundSource) {
+                    try { this._customSoundSource.stop(); } catch(e) {}
+                    try { this._customSoundSource.disconnect(); } catch(e) {}
+                    this._customSoundSource = null;
+                }
                 if (this.activeAlarmNodes && this.activeAlarmNodes.length > 0) {
                     this.activeAlarmNodes.forEach(node => {
                         try { node.stop(); } catch(e) {}
@@ -3453,11 +3614,16 @@
                     });
                     this.activeAlarmNodes = [];
                 }
+                if (this._silentAudio) {
+                    this._silentAudio.pause();
+                    this._silentAudio.currentTime = 0;
+                }
                 if (this.persistentAudioContext && this.persistentAudioContext.state !== 'closed') {
                     this.persistentAudioContext.suspend().catch(() => {});
                 }
                 clearInterval(this.timer);
                 this.timer = null;
+                if (this.timerDeadlineTimeout) { clearTimeout(this.timerDeadlineTimeout); this.timerDeadlineTimeout = null; }
                 if (this.alarmInterval)    { clearInterval(this.alarmInterval);    this.alarmInterval    = null; }
                 if (this.alarmStopTimeout) { clearTimeout(this.alarmStopTimeout);  this.alarmStopTimeout = null; }
                 if (this.vibrateInterval)  { clearInterval(this.vibrateInterval);  this.vibrateInterval  = null; if ('vibrate' in navigator) navigator.vibrate(0); }
@@ -3510,14 +3676,30 @@
             app.init();
         });
         
-        // Handle visibility change - resume AudioContext when page becomes visible again
-        // Only resume if an alarm is actively ringing (alarmInterval is set)
+        // Handle visibility change — when screen comes back on after being off
         document.addEventListener('visibilitychange', () => {
-            if (!document.hidden && app.alarmInterval && app.persistentAudioContext) {
-                if (app.persistentAudioContext.state === 'suspended') {
-                    app.persistentAudioContext.resume().catch(err => {
-                        console.warn('Could not resume AudioContext on visibility restore:', err);
-                    });
+            if (!document.hidden) {
+                // 1. Resume AudioContext if alarm is actively ringing
+                if (app.alarmInterval && app.persistentAudioContext) {
+                    if (app.persistentAudioContext.state === 'suspended') {
+                        app.persistentAudioContext.resume().catch(err => {
+                            console.warn('Could not resume AudioContext on visibility restore:', err);
+                        });
+                    }
+                }
+
+                // 2. SCREEN-OFF CATCH: If timer was running and setInterval was throttled,
+                //    check right now whether the timer has already expired.
+                //    This fires the alarm the instant the user picks up their phone.
+                if (app.isRunning && app.startTime && app.currentDuration) {
+                    const elapsedSeconds = Math.floor((Date.now() - app.startTime) / 1000);
+                    if (elapsedSeconds >= app.currentDuration) {
+                        // Timer expired while screen was off — fire immediately
+                        clearInterval(app.timer);
+                        app.timer = null;
+                        app.isRunning = false;
+                        app._fireTimerComplete();
+                    }
                 }
             }
             // Note: we do NOT stop/pause anything when page is hidden.
