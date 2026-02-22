@@ -2092,7 +2092,6 @@ const APP = {
         this.stopAlarm();
         const savedSubj=this.currentSubject;
         if(secs>0) this._saveSession(savedSubj, secs);
-        this._linkTasks(savedSubj, 'partial');
         FB.schedSave(true);
         this.resetTimer();
         this._refreshUI();
@@ -2102,7 +2101,7 @@ const APP = {
 
     _saveSession(subj, secs) {
         const sessions=STORE.sessions().slice();
-        sessions.push({ id:Date.now()*1000+Math.floor(Math.random()*1000), subject:subj, duration:secs, date:new Date().toISOString(), dateString:new Date().toDateString() });
+        sessions.push({ id:(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,11)), subject:subj, duration:secs, date:new Date().toISOString(), dateString:new Date().toDateString() });
         STORE.setSessions(sessions);
     },
 
@@ -2149,7 +2148,6 @@ const APP = {
             this.sessionSaved=true;
             const completedSubj=this.currentSubject;
             this._saveSession(completedSubj, this.currentDuration);
-            this._linkTasks(completedSubj, 'completed');
             FB.schedSave(true);
             this.resetTimer(); this._refreshUI(); this.closeFullscreen();
             this.playAlarmSound(completedSubj);
@@ -2454,14 +2452,14 @@ const APP = {
         if(!date){this.showToast('⚠️ Please select a date!');return;}
         if(!subj){this.showToast('⚠️ Please select a subject first!');return;}
         if(!desc){this.showToast('⚠️ Please enter a task description!');return;}
-        const tasks=[...STORE.tasks(),{id:Date.now()*1000+Math.floor(Math.random()*1000),subject:subj,description:desc,status,createdAt:new Date().toISOString(),date}];
+        const tasks=[...STORE.tasks(),{id:(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,11)),subject:subj,description:desc,status,createdAt:new Date().toISOString(),date}];
         STORE.setTasks(tasks);
         document.getElementById('taskSubject').selectedIndex=0;
         document.getElementById('taskDescription').value='';
         document.getElementById('taskDescription').focus();
         this.selectTaskStatus('completed');
         this.selectedTaskDate=date;
-        document.getElementById('taskDateSelector').value=date;
+        const _sel=document.getElementById('taskDateSelector');if(_sel&&_sel.value!==date)_sel.value=date;
         this.loadTasks();this.updateCalendar();
         const[y,mo,d]=date.split('-');
         const ds=new Date(+y,+mo-1,+d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
@@ -2948,7 +2946,6 @@ document.addEventListener('visibilitychange',()=>{
                             APP.startTime=t.startTime;
                             APP.sessionSaved=false;
                             APP._saveSession(t.currentSubject,t.currentDuration);
-                            APP._linkTasks(t.currentSubject,'completed');
                             FB.schedSave(true);
                             APP.resetTimer(); APP._refreshUI();
                             APP.playAlarmSound(t.currentSubject);
@@ -3012,7 +3009,6 @@ window.addEventListener('load',()=>{
                     APP.isRunning=false; APP.isPaused=false;
                     APP.sessionSaved=false;
                     APP._saveSession(t.currentSubject, t.currentDuration);
-                    APP._linkTasks(t.currentSubject,'completed');
                     FB.schedSave(true);
                     APP.resetTimer(); APP._refreshUI();
                     APP.playAlarmSound(t.currentSubject);
