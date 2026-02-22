@@ -1716,6 +1716,8 @@
 
             <div class="data-btn-row">
                 <button class="btn btn-ghost btn-full" onclick="app.exportToExcel()">📊 Export CSV</button>
+                <button class="btn btn-ghost btn-full" onclick="document.getElementById('importCSVInput').click()">📂 Import CSV</button>
+                <input type="file" id="importCSVInput" accept=".csv,text/csv" style="display:none" onchange="app.importCSV(event)">
                 <button class="btn btn-ghost btn-full" onclick="app.exportJSONBackup()">📥 Export JSON Backup</button>
                 <button class="btn btn-danger-ghost btn-full" onclick="app.clearAllData()">🗑 Clear All Data</button>
             </div>
@@ -1881,8 +1883,8 @@ const STORE = {
         this._sessions = this._sessions.filter(s => new Date(s.date).getTime() >= cutoff);
         // Ensure IDs
         const base = Date.now();
-        this._sessions.forEach((s,i) => { if (!s.id) s.id = base*1000+i+Math.floor(Math.random()*1000); if (!s.dateString) s.dateString=new Date(s.date).toDateString(); });
-        this._tasks.forEach((t,i) => { if (!t.id) t.id = base*1000+i+1000000+Math.floor(Math.random()*1000); if (!t.status) t.status='not-completed'; });
+        this._sessions.forEach((s,i) => { if (!s.id) s.id = (typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():(Date.now().toString(36)+'-'+i+'-'+Math.random().toString(36).slice(2,9)); if (!s.dateString) s.dateString=new Date(s.date).toDateString(); });
+        this._tasks.forEach((t,i) => { if (!t.id) t.id = (typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():(Date.now().toString(36)+'-t'+i+'-'+Math.random().toString(36).slice(2,9)); if (!t.status) t.status='not-completed'; });
         // Deduplicate subjects
         const seen={}, deduped=[];
         this._subjects.forEach(s=>{ const k=s.toLowerCase(); if(!seen[k]){seen[k]=s;deduped.push(s);} });
@@ -2356,7 +2358,7 @@ const APP = {
                 dateSessions.forEach(s=>{
                     const sh=Math.floor(s.duration/3600),sm=Math.floor((s.duration%3600)/60),ss=s.duration%60;
                     const dur=sh>0?`${sh}h ${sm}m`:`${sm}m ${ss}s`;
-                    sessHTML+=`<div class="session-item"><div class="session-info"><div class="session-subj">${this.esc(s.subject||'Unknown')}</div><div class="session-dur">${dur}</div></div><div class="session-actions"><button class="action-btn edit" onclick="APP.editSession(${s.id})">✏ Edit</button><button class="action-btn del" onclick="APP.deleteSession(${s.id})">🗑</button></div></div>`;
+                    sessHTML+=`<div class="session-item"><div class="session-info"><div class="session-subj">${this.esc(s.subject||'Unknown')}</div><div class="session-dur">${dur}</div></div><div class="session-actions"><button class="action-btn edit" onclick="APP.editSession('${s.id}')">✏ Edit</button><button class="action-btn del" onclick="APP.deleteSession('${s.id}')">🗑</button></div></div>`;
                 });
                 html+=`<button class="breakdown-toggle" id="sessionsToggleBtn" onclick="APP.toggleSessionsDropdown()" style="margin-top:8px;margin-bottom:0;justify-content:flex-start;gap:8px;"><span id="sessionsToggleIcon" style="font-size:10px;">▶</span>Sessions (${dateSessions.length})</button><div id="sessionsDropdown" style="display:none;margin-top:6px;">${sessHTML}</div>`;
             }
@@ -2403,7 +2405,7 @@ const APP = {
         const subjs=STORE.subjects();
         const opts=subjs.map(x=>`<option value="${this.esc(x)}"${x===s.subject?' selected':''}>${this.esc(x)}</option>`).join('');
         const mins=Math.floor(s.duration/60),secs=s.duration%60;
-        document.body.insertAdjacentHTML('beforeend',`<div id="editSessionModal" style="position:fixed;inset:0;background:rgba(11,15,20,0.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;"><div style="background:var(--paper-2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:24px;max-width:420px;width:100%;box-shadow:var(--shadow-xl);"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><div style="font-size:17px;font-weight:700;color:var(--ink);">Edit Session</div><button onclick="APP.closeEditSessionModal()" style="width:28px;height:28px;border-radius:50%;background:var(--paper);border:1px solid var(--border-2);cursor:pointer;font-size:16px;color:var(--ink-3);">✕</button></div><div class="field"><label class="field-label">Subject</label><select id="editSessionSubject" class="input">${opts}</select></div><div class="field"><label class="field-label">Duration</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><input type="number" id="editSessionMinutes" value="${mins}" min="0" class="input" placeholder="Minutes"><div style="font-size:11px;color:var(--ink-4);margin-top:4px;">Minutes</div></div><div><input type="number" id="editSessionSeconds" value="${secs}" min="0" max="59" class="input" placeholder="Seconds"><div style="font-size:11px;color:var(--ink-4);margin-top:4px;">Seconds</div></div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px;"><button onclick="APP.saveSessionEdit(${sid})" class="btn btn-primary">Save</button><button onclick="APP.closeEditSessionModal()" class="btn btn-ghost">Cancel</button></div></div></div>`);
+        document.body.insertAdjacentHTML('beforeend',`<div id="editSessionModal" style="position:fixed;inset:0;background:rgba(11,15,20,0.7);backdrop-filter:blur(4px);display:flex;align-items:center;justify-content:center;z-index:99999;padding:20px;"><div style="background:var(--paper-2);border:1px solid var(--border);border-radius:var(--radius-xl);padding:24px;max-width:420px;width:100%;box-shadow:var(--shadow-xl);"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:20px;"><div style="font-size:17px;font-weight:700;color:var(--ink);">Edit Session</div><button onclick="APP.closeEditSessionModal()" style="width:28px;height:28px;border-radius:50%;background:var(--paper);border:1px solid var(--border-2);cursor:pointer;font-size:16px;color:var(--ink-3);">✕</button></div><div class="field"><label class="field-label">Subject</label><select id="editSessionSubject" class="input">${opts}</select></div><div class="field"><label class="field-label">Duration</label><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;"><div><input type="number" id="editSessionMinutes" value="${mins}" min="0" class="input" placeholder="Minutes"><div style="font-size:11px;color:var(--ink-4);margin-top:4px;">Minutes</div></div><div><input type="number" id="editSessionSeconds" value="${secs}" min="0" max="59" class="input" placeholder="Seconds"><div style="font-size:11px;color:var(--ink-4);margin-top:4px;">Seconds</div></div></div></div><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:20px;"><button onclick="APP.saveSessionEdit('${sid}')" class="btn btn-primary">Save</button><button onclick="APP.closeEditSessionModal()" class="btn btn-ghost">Cancel</button></div></div></div>`);
     },
 
     saveSessionEdit(sid) {
@@ -2412,7 +2414,7 @@ const APP = {
         const secs=Math.min(59,Math.max(0,parseInt(document.getElementById('editSessionSeconds').value)||0));
         if(!subj){this.showToast('⚠️ Please select a subject!');return;}
         if(!mins&&!secs){this.showToast('⚠️ Duration must be greater than 0!');return;}
-        const sess=STORE.sessions().map(s=>s.id===sid?{...s,subject:subj,duration:mins*60+secs}:s);
+        const sess=STORE.sessions().map(s=>s.id==sid?{...s,subject:subj,duration:mins*60+secs}:s);
         STORE.setSessions(sess);
         this.closeEditSessionModal();
         this.updateTodayStats();this.updateCalendar();this.updateDailyTargetStats();this.updateWeeklyDashboard();this.updateSubjectAnalytics();
@@ -2424,7 +2426,7 @@ const APP = {
 
     deleteSession(sid) {
         if(!confirm('🗑 Delete this session? This cannot be undone!'))return;
-        STORE.setSessions(STORE.sessions().filter(s=>s.id!==sid));
+        STORE.setSessions(STORE.sessions().filter(s=>s.id!=sid));
         this.updateTodayStats();this.updateCalendar();this.updateDailyTargetStats();this.updateWeeklyDashboard();this.updateSubjectAnalytics();
         if(this._lastSelectedDate){const t=document.getElementById('selectedDateTitle');if(t&&t.textContent!=='Select a date')this.showDateDetails(this._lastSelectedDate);}
         this.showToast('🗑 Session deleted');
@@ -2459,7 +2461,7 @@ const APP = {
         document.getElementById('taskDescription').focus();
         this.selectTaskStatus('completed');
         this.selectedTaskDate=date;
-        const _sel=document.getElementById('taskDateSelector');if(_sel&&_sel.value!==date)_sel.value=date;
+        const _sel=document.getElementById('taskDateSelector');if(_sel)_sel.value=date;
         this.loadTasks();this.updateCalendar();
         const[y,mo,d]=date.split('-');
         const ds=new Date(+y,+mo-1,+d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
@@ -2484,7 +2486,7 @@ const APP = {
             const done=task.status==='completed';
             const[ty,tmo,td]=task.date.split('-');
             const ds=new Date(+ty,+tmo-1,+td).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric'});
-            return `<div class="task-item status-${task.status}"><div class="task-top"><span class="task-desc ${done?'done':''}">${APP.esc(task.description)}</span><span class="task-badge ${task.status}">${sl[task.status]||task.status}</span></div><div class="task-meta">${APP.esc(task.subject)} · 📅 ${ds}</div><div class="task-actions"><button class="action-btn edit" onclick="APP.openEditTask(${task.id})">✏ Edit</button><button class="action-btn del" onclick="APP.deleteTask(${task.id})">🗑 Delete</button></div></div>`;
+            return `<div class="task-item status-${task.status}"><div class="task-top"><span class="task-desc ${done?'done':''}">${APP.esc(task.description)}</span><span class="task-badge ${task.status}">${sl[task.status]||task.status}</span></div><div class="task-meta">${APP.esc(task.subject)} · 📅 ${ds}</div><div class="task-actions"><button class="action-btn edit" onclick="APP.openEditTask('${task.id}')">✏ Edit</button><button class="action-btn del" onclick="APP.deleteTask('${task.id}')">🗑 Delete</button></div></div>`;
         }).join('');
         cont.innerHTML=tHTML;
     },
@@ -2518,7 +2520,7 @@ const APP = {
         if(!subj){this.showToast('⚠️ Please select a subject!');return;}
         if(!desc){this.showToast('⚠️ Please enter a task description!');return;}
         const tasks=STORE.tasks().slice();
-        const idx=tasks.findIndex(t=>t.id===this.editingTaskId);
+        const idx=tasks.findIndex(t=>t.id==this.editingTaskId);
         if(idx!==-1){
             tasks[idx]={...tasks[idx],subject:subj,description:desc,status,date,updatedAt:new Date().toISOString()};
             STORE.setTasks(tasks);
@@ -2532,7 +2534,7 @@ const APP = {
 
     deleteTask(tid){
         if(!confirm('🗑 Delete this task?'))return;
-        STORE.setTasks(STORE.tasks().filter(t=>t.id!==tid));
+        STORE.setTasks(STORE.tasks().filter(t=>t.id!=tid));
         this.loadTasks();this.updateCalendar();this.showToast('🗑 Task deleted');
     },
 
@@ -2881,6 +2883,99 @@ const APP = {
 
     exportData(){ this.exportToExcel(); },
 
+    importCSV(e){
+        const file=e.target.files[0]; if(!file)return;
+        e.target.value='';
+        const reader=new FileReader();
+        reader.onerror=()=>this.showToast('⚠️ Could not read the file.');
+        reader.onload=ev=>{
+            try{
+                const raw=ev.target.result;
+                const text=raw.charCodeAt(0)===0xFEFF?raw.slice(1):raw;
+                const lines=text.split(/\r?\n/);
+                // Find header row
+                let headerIdx=-1;
+                for(let i=0;i<lines.length;i++){
+                    const l=lines[i].toLowerCase();
+                    if(l.includes('date')&&l.includes('subject')&&l.includes('subject time')){headerIdx=i;break;}
+                }
+                if(headerIdx===-1){this.showToast('⚠️ Invalid CSV — header row not found.');return;}
+                // Parse CSV row respecting quoted fields
+                const parseRow=row=>{
+                    const cols=[];let cur='',inQ=false;
+                    for(let i=0;i<row.length;i++){
+                        const ch=row[i];
+                        if(ch==='"'){if(inQ&&row[i+1]==='"'){cur+='"';i++;}else{inQ=!inQ;}}
+                        else if(ch===','&&!inQ){cols.push(cur.trim());cur='';}
+                        else{cur+=ch;}
+                    }
+                    cols.push(cur.trim());return cols;
+                };
+                // Parse "1h 30m 5s" → seconds
+                const parseTime=str=>{
+                    if(!str)return 0;let s=0;
+                    const h=str.match(/(\d+)\s*h/);if(h)s+=parseInt(h[1])*3600;
+                    const m=str.match(/(\d+)\s*m/);if(m)s+=parseInt(m[1])*60;
+                    const sc=str.match(/(\d+)\s*s/);if(sc)s+=parseInt(sc[1]);
+                    return s;
+                };
+                // Parse date → YYYY-MM-DD
+                const parseDate=str=>{
+                    if(!str||!str.trim())return null;
+                    str=str.trim();
+                    if(/^\d{4}-\d{2}-\d{2}$/.test(str))return str;
+                    const d=new Date(str);
+                    if(!isNaN(d.getTime()))return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                    return null;
+                };
+                const genId=()=>(typeof crypto!=='undefined'&&crypto.randomUUID)?crypto.randomUUID():(Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,11));
+                const headers=parseRow(lines[headerIdx]).map(h=>h.toLowerCase());
+                const colDate=headers.findIndex(h=>h==='date');
+                const colSubj=headers.findIndex(h=>h==='subject');
+                const colSubjTime=headers.findIndex(h=>h.includes('subject time'));
+                const colTasks=headers.findIndex(h=>h.includes('tasks'));
+                if(colDate===-1||colSubj===-1||colSubjTime===-1){this.showToast('⚠️ CSV columns not recognised. Use a StudyFlow exported CSV.');return;}
+                let newSessions=0,newTasks=0,newSubjects=0,lastDate=null;
+                const importedSessions=[],importedTasks=[];
+                const knownSubjects=new Set(STORE.subjects().map(s=>s.toLowerCase()));
+                const subjectsToAdd=[];
+                for(let i=headerIdx+1;i<lines.length;i++){
+                    const line=lines[i].trim();if(!line)continue;
+                    const cols=parseRow(lines[i]);
+                    const rawDate=cols[colDate]||'';
+                    if(rawDate.trim())lastDate=parseDate(rawDate);
+                    if(!lastDate)continue;
+                    const subj=(cols[colSubj]||'').trim();
+                    if(!subj||subj==='No data')continue;
+                    const subjSecs=parseTime(cols[colSubjTime]||'');
+                    const tasksRaw=colTasks!==-1?(cols[colTasks]||'').trim():'';
+                    if(!knownSubjects.has(subj.toLowerCase())){knownSubjects.add(subj.toLowerCase());subjectsToAdd.push(subj);newSubjects++;}
+                    if(subjSecs>0){
+                        importedSessions.push({id:genId(),subject:subj,duration:subjSecs,date:new Date(lastDate+'T12:00:00').toISOString(),dateString:new Date(lastDate+'T12:00:00').toDateString()});
+                        newSessions++;
+                    }
+                    if(tasksRaw&&tasksRaw!=='No tasks'){
+                        tasksRaw.split(';').map(t=>t.trim()).filter(t=>t).forEach(desc=>{
+                            importedTasks.push({id:genId(),subject:subj,description:desc,status:'completed',date:lastDate,createdAt:new Date().toISOString()});
+                            newTasks++;
+                        });
+                    }
+                }
+                if(!newSessions&&!newTasks&&!newSubjects){this.showToast('⚠️ No new data found in CSV.');return;}
+                STORE.setSubjects([...STORE.subjects(),...subjectsToAdd]);
+                STORE.setSessions([...STORE.sessions(),...importedSessions]);
+                STORE.setTasks([...STORE.tasks(),...importedTasks]);
+                FB.schedSave(true);
+                this.refreshAll();
+                this.showToast(`✅ Imported: ${newSessions} sessions, ${newTasks} tasks, ${newSubjects} new subjects.`);
+            }catch(err){
+                console.error('[ImportCSV]',err);
+                this.showToast('⚠️ Failed to parse CSV. Use a StudyFlow exported file.');
+            }
+        };
+        reader.readAsText(file,'UTF-8');
+    },
+
     // ── Clear data ──────────────────────────────────────────────────
     clearAllData(){
         if(!confirm('⚠️ Clear ALL data? Sessions, tasks, and subjects will be permanently deleted.'))return;
@@ -2900,6 +2995,8 @@ const APP = {
         const titleEl=document.getElementById('selectedDateTitle');if(titleEl)titleEl.textContent='Select a date';
         const detailsEl=document.getElementById('dateDetailsContainer');if(detailsEl)detailsEl.innerHTML='<div class="empty"><div class="empty-icon">📆</div><div class="empty-text">Tap a date above to view<br>sessions and tasks</div></div>';
         this.enableAudioOnInteraction();
+        const adp=document.getElementById('analyticsDatePicker');if(adp)adp.value=new Date().toISOString().split('T')[0];
+        const awp=document.getElementById('analyticsWeekPicker');if(awp)awp.value=this._isoWeek(new Date());
         this.showToast('✅ All data cleared! 5 default subjects added.');
     },
 
