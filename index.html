@@ -1596,6 +1596,21 @@
             <div id="subjectAnalytics"></div>
         </div>
 
+        <!-- Incomplete Tasks Dropdown -->
+        <div class="card" style="margin-bottom:16px;">
+            <button id="incompleteTasksToggle" onclick="app.toggleIncompleteTasks()"
+                style="width:100%;display:flex;align-items:center;justify-content:space-between;background:none;border:none;cursor:pointer;padding:0;font-family:var(--font);">
+                <span class="card-title" style="margin-bottom:0;">
+                    <span class="card-title-icon">⚠️</span>Incomplete Tasks
+                    <span id="incompleteTasksBadge" style="margin-left:6px;background:var(--danger-muted);color:var(--danger);font-size:11px;font-weight:700;padding:2px 8px;border-radius:99px;border:1px solid rgba(239,68,68,0.18);display:none;"></span>
+                </span>
+                <span id="incompleteTasksChevron" style="font-size:12px;color:var(--ink-4);transition:transform 0.2s;display:inline-block;flex-shrink:0;">▼</span>
+            </button>
+            <div id="incompleteTasksBody" style="display:none;margin-top:14px;">
+                <div id="incompleteTasksList"></div>
+            </div>
+        </div>
+
     </div>
 </div>
 
@@ -1795,7 +1810,7 @@ const STORE = {
     _sessions: [],
     _tasks: [],
     _subjects: [],
-    _settings: { notificationSound:'bell', volume:70, dailyTargetHours:8 },
+    _settings: { notificationSound:'bell', volume:70, dailyTargetHours:8, customSoundName:null },
     _loaded: false,
 
     /* ── getters (UI always calls these) ── */
@@ -1955,6 +1970,7 @@ const APP = {
         this.updateDailyTargetStats();
         this.updateWeeklyDashboard();
         this.updateSubjectAnalytics();
+        this.updateIncompleteTasks();
     },
 
     refreshAll() {
@@ -1967,6 +1983,7 @@ const APP = {
         this.updateDailyTargetStats();
         this.updateWeeklyDashboard();
         this.updateSubjectAnalytics();
+        this.updateIncompleteTasks();
         if (this._lastSelectedDate) this.showDateDetails(this._lastSelectedDate);
     },
 
@@ -1985,7 +2002,7 @@ const APP = {
         else { const b=document.querySelector(`.tab-btn[onclick*="'${tab}'"]`); if(b)b.classList.add('active'); }
         document.getElementById(tab+'Tab').classList.add('active');
         if(tab==='analytics'){ this.updateTodayStats(); this.updateCalendar(); }
-        else if(tab==='newanalytics'){ this.loadDailyTarget(); this.updateDailyTargetStats(); this.updateWeeklyDashboard(); this.updateSubjectAnalytics(); }
+        else if(tab==='newanalytics'){ this.loadDailyTarget(); this.updateDailyTargetStats(); this.updateWeeklyDashboard(); this.updateSubjectAnalytics(); this.updateIncompleteTasks(); }
         else if(tab==='tasks'){ this.loadTasks(); }
     },
 
@@ -2038,6 +2055,8 @@ const APP = {
         if(this.isRunning){
             this.elapsedTime=Date.now()-this.startTime;
             clearInterval(this.timer); this.timer=null; this.isRunning=false; this.isPaused=true;
+            // Persist immediately so paused state survives a tab kill
+            try{localStorage.setItem('sf_timer',JSON.stringify({startTime:this.startTime,currentDuration:this.currentDuration,currentSubject:this.currentSubject,sessionSaved:this.sessionSaved,isRunning:false,isPaused:true,elapsedTime:this.elapsedTime}));}catch(e){}
             if(hero)hero.classList.remove('running');
             // Release WakeLock while paused
             if(this.wakeLock){try{this.wakeLock.release();}catch(e){}this.wakeLock=null;}
@@ -2094,6 +2113,7 @@ const APP = {
         this.stopAlarm();
         const savedSubj=this.currentSubject;
         if(secs>0) this._saveSession(savedSubj, secs);
+        this._linkTasks(savedSubj, 'completed');
         FB.schedSave(true);
         this.resetTimer();
         this._refreshUI();
@@ -2150,6 +2170,7 @@ const APP = {
             this.sessionSaved=true;
             const completedSubj=this.currentSubject;
             this._saveSession(completedSubj, this.currentDuration);
+            this._linkTasks(completedSubj, 'completed');
             FB.schedSave(true);
             this.resetTimer(); this._refreshUI(); this.closeFullscreen();
             this.playAlarmSound(completedSubj);
@@ -2207,6 +2228,7 @@ const APP = {
     _refreshUI() {
         this.updateTodayStats(); this.updateCalendar();
         this.updateDailyTargetStats(); this.updateWeeklyDashboard(); this.updateSubjectAnalytics();
+        this.updateIncompleteTasks();
         this.loadTasks();
     },
 
@@ -2298,7 +2320,8 @@ const APP = {
             if(hS&&hT)cls+=' has-both';else if(hS)cls+=' has-session';else if(hT)cls+=' has-task';
             html+=`<div class="${cls}" onclick="APP.selectCalendarDate('${ymd}')">${day}</div>`;
         }
-        const rem=Math.max(0,42-(fDow+last.getDate()));
+        const totalCells=Math.ceil((fDow+last.getDate())/7)*7;
+        const rem=Math.max(0,totalCells-(fDow+last.getDate()));
         for(let i=1;i<=rem;i++)html+=`<div class="cal-day other-month">${i}</div>`;
         cgEl.innerHTML=html;
     },
@@ -2462,7 +2485,7 @@ const APP = {
         this.selectTaskStatus('completed');
         this.selectedTaskDate=date;
         const _sel=document.getElementById('taskDateSelector');if(_sel)_sel.value=date;
-        this.loadTasks();this.updateCalendar();
+        this.loadTasks();this.updateCalendar();this.updateIncompleteTasks();
         const[y,mo,d]=date.split('-');
         const ds=new Date(+y,+mo-1,+d).toLocaleDateString('en-US',{month:'short',day:'numeric',year:'numeric'});
         this.showToast(`✅ Task added for ${ds}`);
@@ -2524,7 +2547,7 @@ const APP = {
         if(idx!==-1){
             tasks[idx]={...tasks[idx],subject:subj,description:desc,status,date,updatedAt:new Date().toISOString()};
             STORE.setTasks(tasks);
-            this.closeTaskEditModal();this.loadTasks();this.updateCalendar();this.showToast('✅ Task updated');
+            this.closeTaskEditModal();this.loadTasks();this.updateCalendar();this.updateIncompleteTasks();this.showToast('✅ Task updated');
         } else {
             this.closeTaskEditModal();this.loadTasks();this.showToast('⚠️ Task not found — it may have been deleted.');
         }
@@ -2535,7 +2558,7 @@ const APP = {
     deleteTask(tid){
         if(!confirm('🗑 Delete this task?'))return;
         STORE.setTasks(STORE.tasks().filter(t=>t.id!=tid));
-        this.loadTasks();this.updateCalendar();this.showToast('🗑 Task deleted');
+        this.loadTasks();this.updateCalendar();this.updateIncompleteTasks();this.showToast('🗑 Task deleted');
     },
 
     // ── Settings ────────────────────────────────────────────────────
@@ -2625,7 +2648,7 @@ const APP = {
         }
         // Fire notification immediately — works even if screen is off
         if('Notification'in window && Notification.permission==='granted'){
-            try{new Notification('⏰ StudyFlow — Time\'s Up!',{body:sl?`${sl} session complete! Great work!`:'Your study session is complete!',requireInteraction:true,tag:'studyflow-alarm',icon:'data:image/svg+xml,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100"><text y=".9em" font-size="90">⏰</text></svg>'});}catch(e){}
+            try{new Notification('⏰ StudyFlow — Time\'s Up!',{body:sl?`${sl} session complete! Great work!`:'Your study session is complete!',requireInteraction:true,tag:'studyflow-alarm',icon:'data:image/svg+xml,%3Csvg%20xmlns%3D%22http%3A%2F%2Fwww.w3.org%2F2000%2Fsvg%22%20viewBox%3D%220%200%20100%20100%22%3E%3Ctext%20y%3D%22.9em%22%20font-size%3D%2290%22%3E%E2%8F%B0%3C%2Ftext%3E%3C%2Fsvg%3E'});}catch(e){}
         }
         // Vibration — works even when screen is off on Android
         if('vibrate'in navigator){
@@ -2854,6 +2877,44 @@ const APP = {
         }).join('');
     },
 
+    toggleIncompleteTasks(){
+        const body=document.getElementById('incompleteTasksBody');
+        const chev=document.getElementById('incompleteTasksChevron');
+        if(!body||!chev)return;
+        const open=body.style.display!=='none';
+        body.style.display=open?'none':'block';
+        chev.style.transform=open?'':'rotate(180deg)';
+    },
+
+    updateIncompleteTasks(){
+        const badge=document.getElementById('incompleteTasksBadge');
+        const list=document.getElementById('incompleteTasksList');
+        if(!list)return;
+        const incomplete=STORE.tasks()
+            .filter(t=>t.status==='not-completed'||t.status==='partial')
+            .sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+        if(badge){
+            if(incomplete.length){badge.textContent=incomplete.length;badge.style.display='inline-block';}
+            else{badge.style.display='none';}
+        }
+        if(!incomplete.length){
+            list.innerHTML='<div class="empty" style="padding:20px 0;"><div class="empty-icon" style="font-size:28px;">✅</div><div class="empty-text">No incomplete tasks — great work!</div></div>';
+            return;
+        }
+        const sl={'partial':'🔄 In Progress','not-completed':'❌ Todo'};
+        const grouped={};
+        incomplete.forEach(t=>{if(!grouped[t.date])grouped[t.date]=[];grouped[t.date].push(t);});
+        list.innerHTML=Object.keys(grouped).sort().map(date=>{
+            const[y,mo,d]=date.split('-').map(Number);
+            const today=new Date().toISOString().split('T')[0];
+            const isPast=date<today;
+            const label=date===today?'Today':new Date(y,mo-1,d).toLocaleDateString('en-US',{weekday:'short',month:'short',day:'numeric',year:'numeric'});
+            const overdue=isPast?`<span style="font-size:10px;font-weight:700;color:var(--danger);background:var(--danger-muted);padding:1px 6px;border-radius:99px;margin-left:6px;">Overdue</span>`:'';
+            const items=grouped[date].map(t=>`<div class="task-item status-${t.status}" style="margin-bottom:6px;"><div class="task-top"><span class="task-desc">${this.esc(t.description)}</span><span class="task-badge ${t.status}">${sl[t.status]||t.status}</span></div><div class="task-meta">${this.esc(t.subject)}</div></div>`).join('');
+            return `<div style="margin-bottom:14px;"><div style="font-size:11.5px;font-weight:700;color:var(--ink-4);text-transform:uppercase;letter-spacing:0.05em;margin-bottom:8px;display:flex;align-items:center;">${label}${overdue}</div>${items}</div>`;
+        }).join('');
+    },
+
     // ── Exports ─────────────────────────────────────────────────────
     exportJSONBackup(){
         const data={subjects:STORE.subjects(),sessions:STORE.sessions(),tasks:STORE.tasks(),settings:{sound:STORE.setting('notificationSound','bell'),volume:STORE.setting('volume',70),customSoundName:STORE.setting('customSoundName',null),dailyTargetHours:STORE.setting('dailyTargetHours',8)},exportDate:new Date().toISOString()};
@@ -2991,7 +3052,7 @@ const APP = {
         localStorage.clear();
         _ls('subjects',defaults);
         FB.schedSave(true);
-        this.loadSubjects();this.updateCalendar();this.updateTodayStats();this.loadSettings();this.loadTasks();this.initializeTaskDate();this.resetTimer();this.loadDailyTarget();this.updateDailyTargetStats();this.updateWeeklyDashboard();this.updateSubjectAnalytics();
+        this.loadSubjects();this.updateCalendar();this.updateTodayStats();this.loadSettings();this.loadTasks();this.initializeTaskDate();this.resetTimer();this.loadDailyTarget();this.updateDailyTargetStats();this.updateWeeklyDashboard();this.updateSubjectAnalytics();this.updateIncompleteTasks();
         const titleEl=document.getElementById('selectedDateTitle');if(titleEl)titleEl.textContent='Select a date';
         const detailsEl=document.getElementById('dateDetailsContainer');if(detailsEl)detailsEl.innerHTML='<div class="empty"><div class="empty-icon">📆</div><div class="empty-text">Tap a date above to view<br>sessions and tasks</div></div>';
         this.enableAudioOnInteraction();
@@ -3068,20 +3129,10 @@ function requestNotifyPermission() {
 }
 
 function fireBackgroundAlert() {
-  try {
-    if ("Notification" in window && Notification.permission === "granted") {
-      new Notification("StudyFlow Timer Done", {
-        body: "Your session is complete.",
-        requireInteraction: true
-      });
-    }
-  } catch(e){}
-
-  try {
-    if (navigator.vibrate) {
-      navigator.vibrate([500,300,500,300,500,300,500]);
-    }
-  } catch(e){}
+  // Intentionally empty: playAlarmSound() already fires the notification
+  // (with tag:'studyflow-alarm') and vibration before calling this function.
+  // Leaving this stub preserves call-site compatibility if future
+  // platform-specific background delivery is added.
 }
 
 window.addEventListener('load',()=>{
